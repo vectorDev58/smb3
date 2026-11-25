@@ -1,0 +1,134 @@
+name: Build and test without a ROM
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+            archive: tar.gz
+            executable: smb3
+          - os: windows-2025
+            platform: windows-x86_64
+            archive: zip
+            executable: smb3.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libgl-dev ninja-build
+      - name: Run Python checks
+        run: python -m unittest discover -s tests -v
+      - name: Compile the ROM-loading executable
+        run: python tools/smb3.py build
+      - name: Run C++ checks
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package the executable
+        run: cpack --config build/CPackConfig.cmake -C Release
+      - name: Check the executable inside the archive
+        shell: bash
+        env:
+          PACKAGE: smb3-pc-${{ matrix.platform }}
+          ARCHIVE_EXTENSION: ${{ matrix.archive }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          archive="$PWD/dist/$PACKAGE.$ARCHIVE_EXTENSION"
+          cd "$(mktemp -d)"
+          cmake -E tar xf "$archive"
+          cd "$PACKAGE"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          expected = {os.environ["EXECUTABLE"], "config.ini", "README.md", "LICENSE", "THIRD_PARTY.md", "licenses"}
+          if os.environ["EXECUTABLE"].endswith(".exe"):
+              expected.add("SDL2.dll")
+          actual = {path.name for path in Path(".").iterdir()}
+          if actual != expected:
+              raise SystemExit(f"Unexpected package contents: {sorted(actual ^ expected)}")
+          PY
+          python -c "from pathlib import Path; Path('invalid.nes').write_bytes(b'NES\x1a' + bytes(393228))"
+          status=0
+          "./$EXECUTABLE" invalid.nes --frames 1 --no-save > smoke.log 2>&1 || status=$?
+          cat smoke.log
+          test "$status" -eq 2
+          grep -Fq 'cannot load selected ROM' smoke.log
+      - name: Upload the packaged executable
+        uses: actions/upload-artifact@v7
+        with:
+          name: smb3-pc-${{ matrix.platform }}
+          path: dist/smb3-pc-${{ matrix.platform }}.${{ matrix.archive }}
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Package the source
+        if: runner.os == 'Linux'
+        run: python tools/smb3.py source-zip
+      - name: Upload the source archive
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: smb3-pc-source
+          path: dist/smb3-pc-source.zip
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  release:
+    name: Prepare draft release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: smb3-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: smb3-pc-*
+          path: packages
+          merge-multiple: true
+      - name: Attach packages to the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archives=(
+            packages/smb3-pc-linux-x86_64.tar.gz
+            packages/smb3-pc-windows-x86_64.zip
+            packages/smb3-pc-source.zip
+          )
+          for archive in "${archives[@]}"; do
+            test -s "$archive"
+          done
+          if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$draft" == true ]]; then
+              gh release upload "$GITHUB_REF_NAME" "${archives[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            else
+              echo "Release $GITHUB_REF_NAME is already published."
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" "${archives[@]}" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes
+          fi

@@ -1,0 +1,10 @@
+{
+  "nesrecomp": {
+    "url": "https://github.com/mstan/nesrecomp.git",
+    "revision": "77ad5b8264d7b60438aec1e1466df710c890f319"
+  },
+  "recomp-ui": {
+    "url": "https://github.com/RetroPortingToolKit/recomp-ui.git",
+    "revision": "7c9eea3e5c4050223cd91c42ba8c076a99ae79c9"
+  }
+}

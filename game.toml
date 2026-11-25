@@ -1,0 +1,101 @@
+[game]
+name = "Super Mario Bros. 3 - Remastered PC"
+output_prefix = "smb3"
+cycle_accurate = true
+cycle_seed_file = "recomp/seeds.txt"
+console = "nes"
+
+[[mod_function_hook]]
+id = "smb3.wide-visibility"
+addr = 0xD7AB
+bytes = "BD 61 06 C9 02 10 06 A9 FC 9D 51 06 60"
+
+[[mod_function_hook]]
+id = "smb3.wide-spawn"
+addr = 0xB836
+bytes = "A4 5B A5 FD 18 79 32 B8 29 F0 85 05"
+
+[[mod_function_hook]]
+id = "smb3.wide-projectile-origin"
+addr = 0xC454
+bytes = "20 54 DD D0 F8 60"
+
+[[mod_function_hook]]
+id = "smb3.wide-projectile"
+addr = 0xAF24
+bytes = "BD C6 7F F0 FA AD FE 05"
+
+[[mod_function_hook]]
+id = "smb3.wide-projectile-hit"
+addr = 0xB7D1
+bytes = "8A 18 65 15 4A 90 4E A0 00"
+
+[[mod_function_hook]]
+id = "smb3.wide-player-projectile"
+addr = 0xA333
+bytes = "BD E1 7C F0 F0 C9 03 90 03"
+
+[[mod_function_hook]]
+id = "smb3.wide-player-projectile-hit"
+addr = 0xA68D
+bytes = "A5 00 29 0F AA 86 01 A5 0C"
+
+[[mod_function_hook]]
+id = "smb3.wide-cannon"
+addr = 0xBB81
+bytes = "BD 15 7A F0 FA 48 BD E3 06"
+
+[[mod_function_hook]]
+id = "smb3.wide-actor-draw-start"
+addr = 0xC9C2
+bytes = "20 46 CA 20 F2 DA BD 61 06"
+
+[[mod_function_hook]]
+id = "smb3.wide-actor-draw-end"
+addr = 0xC9C8
+bytes = "BD 61 06 D0 05 A9 FF 9D 59 06"
+
+[[mod_function_hook]]
+id = "smb3.wide-actor-retain"
+addr = 0xD3EF
+bytes = "85 00 20 54 DD F0 6D AD EF 03 D0 69"
+
+[[mod_function_hook]]
+id = "smb3.wide-box-origin"
+addr = 0xD955
+bytes = "BC 71 06 B9 F4 C2 29 0F 0A 0A A8 B5 AC"
+
+[[mod_function_hook]]
+id = "smb3.wide-box-intersect"
+addr = 0xD97B
+bytes = "A0 00 84 0B A5 02 38 E5 00 85 0A"
+
+[[mod_function_hook]]
+id = "smb3.wide-shell-blocks"
+addr = 0xCCA0
+bytes = "B4 BE 10 06 C9 06 90 3A B0 04 C9 E4 B0 34"
+
+[[mod_function_hook]]
+id = "smb3.wide-player-crush"
+addr = 0xA45C
+bytes = "C9 F8 90 12 AD EF 03 0D 59 05 D0 0A"
+
+[[mod_function_hook]]
+id = "smb3.wide-player-boundary"
+addr = 0xB1D0
+bytes = "A4 BD 30 09 C9 E8 90 30 A9 E8 4C E3 B1"
+
+[[mod_function_hook]]
+id = "smb3.wide-autoscroll"
+addr = 0xBCC0
+bytes = "A5 AB C9 10 90 04 C9 E0 90 16 AD 0E 7A"
+
+[[mod_function_hook]]
+id = "smb3.practice-world"
+addr = 0x84A0
+bytes = "A9 0A 8D 1F 07 A9 0B 8D 20 07 20 BF FF"
+
+[[mod_function_hook]]
+id = "smb3.practice-level"
+addr = 0x8732
+bytes = "AC 29 07 C0 0D D0 06 A5 8B C9 03 F0 10"

@@ -1,0 +1,15 @@
+# Title -> World 1 map -> 1-1 -> run and jump. No RAM changes or cheats.
+12 START
+13 NONE
+68 START
+69 NONE
+328 RIGHT
+329 NONE
+345 UP
+346 NONE
+361 A
+362 NONE
+387 RIGHT+B
+450 RIGHT+B+A
+466 RIGHT+B
+500 NONE

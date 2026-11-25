@@ -1,0 +1,15 @@
+# SDL virtual controller: same route as first-level.txt through real bindings.
+12 start
+13 -
+68 start
+69 -
+328 dpright
+329 -
+345 dpup
+346 -
+361 a
+362 -
+387 dpright x
+450 dpright x a
+466 dpright x
+500 -
