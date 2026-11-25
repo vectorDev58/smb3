@@ -39,6 +39,12 @@ jobs:
           sudo apt-get install -y libsdl2-dev libgl-dev ninja-build
       - name: Run Python checks
         run: python -m unittest discover -s tests -v
+      - name: Select Visual Studio 2026
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CMAKE_GENERATOR=Visual Studio 18 2026" >> $env:GITHUB_ENV
+          "CMAKE_GENERATOR_PLATFORM=x64" >> $env:GITHUB_ENV
       - name: Compile the ROM-loading executable
         run: python tools/smb3.py build
       - name: Run C++ checks
