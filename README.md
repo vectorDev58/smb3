@@ -73,6 +73,8 @@ Toad and Toadette appear in character selection when the first two packs are ins
 
 **Settings → Display** controls the aspect mode and window scale. **Settings → Controls** lets you remap the controls for each player. **Settings → Practice** opens the tools for level selection, powers, and lives.
 
+**Settings → Remastered** works like the visual options of Super Mario Bros. Remastered. **Visual style** switches between the remastered art and the original NES colors and tiles. Both styles keep the widescreen view, the menus, and the save. Shadows, background particles, parallax, the HUD layout (split panels or the NES status bar), and the star effect (classic or rainbow) each have their own switch.
+
 ### Menu language
 
 English is the default. Open **Settings → System → Language** and use Left or Right to switch between **English** and **Español**. The menus update immediately and the game remembers your choice. To switch back from Spanish, use **Configuración → Sistema → Idioma**. Text rendered by the original campaign uses the ROM's language.

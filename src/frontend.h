@@ -343,6 +343,8 @@ const char *ui_label(const char *label) {
         {"Rewind", "Rebobinar"}, {"Unavailable", "No disponible"}, {"On", "Sí"}, {"Off", "No"},
         {"Main menu", "Menú principal"}, {"Characters", "Personajes"}, {"Visual style", "Estilo visual"},
         {"Classic NES", "Clásico NES"}, {"Shadows", "Sombras"}, {"Tools", "Herramientas"},
+        {"Background particles", "Partículas de fondo"}, {"Parallax", "Paralaje"},
+        {"Star effect", "Efecto de estrella"}, {"Classic", "Clásico"}, {"Rainbow", "Arcoíris"},
         {"Up", "Arriba"}, {"Down", "Abajo"}, {"Left", "Izquierda"}, {"Right", "Derecha"},
         {"Space", "Espacio"}, {"Backspace", "Retroceso"}, {"Delete", "Suprimir"},
         {"dpup", "Cruceta arriba"}, {"dpdown", "Cruceta abajo"},
@@ -370,7 +372,8 @@ const char *ui_description(const RecompRuntimeUiRowView &row) {
         {"Audio", "Sound output, volume and synthesis.", "Salida de sonido, volumen y síntesis."},
         {"System", "Language, save states and rewind.", "Idioma, partidas guardadas y rebobinado."},
         {"Controls", "Keyboard and controller bindings for each player.", "Teclado y mando de cada jugador."},
-        {"Remastered", "Characters, visual style and shadows.", "Personajes, estilo visual y sombras."},
+        {"Remastered", "Characters, visual style, shadows, particles, HUD and star.",
+         "Personajes, estilo visual, sombras, partículas, HUD y estrella."},
         {"Practice", "Test powers, lives and levels.", "Prueba poderes, vidas y niveles."}};
     if (!row.item) {
         for (const auto &section : sections)
@@ -389,7 +392,13 @@ const char *ui_description(const RecompRuntimeUiRowView &row) {
         {"Choose the language of the menus.", "Elige el idioma de los menús."},
         {"Return to the title screen without ending the session.", "Vuelve al título sin terminar la partida."},
         {"Open character selection.", "Abre la selección de personaje."},
-        {"Choose the classic or remastered presentation.", "Elige la presentación clásica o remasterizada."},
+        {"Classic NES art keeps the widescreen view and every option below.",
+         "El arte clásico de NES conserva la pantalla panorámica y las opciones de abajo."},
+        {"Snow, embers, bubbles and wind over the scenery.", "Nieve, brasas, burbujas y viento sobre el escenario."},
+        {"Far scenery scrolls slower than the ground.", "El fondo lejano se desplaza más despacio que el suelo."},
+        {"Split panels at the screen edges, or the NES status bar.",
+         "Paneles en los bordes de la pantalla o la barra de estado de NES."},
+        {"Colors of the player during star power.", "Colores del jugador con la estrella."},
         {"Show scenery and character shadows.", "Muestra las sombras del escenario y de los personajes."},
         {"Test powers, lives, and levels.", "Prueba poderes, vidas y niveles."},
         {"Browse twelve save slots with thumbnails (F7).", "Doce ranuras de guardado con miniaturas (F7)."},

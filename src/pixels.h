@@ -38,8 +38,12 @@ inline uint32_t dim(uint32_t pixel, unsigned light) {
     return result;
 }
 
+// Classic graphics point this at the console's own 64 colors for the frame; null keeps the remaster's.
+inline const uint32_t *classic_palette = nullptr;
+
 // Shared NES color indices keep every original animation, tile and palette cycle.
 inline uint32_t color(unsigned index) {
+    if (classic_palette) return classic_palette[index & 63];
     static constexpr uint32_t palette[64] = {
         0x77756c,0x313c85,0x373298,0x5f2c87,0x842963,0x963a43,0x9d492b,0x85512b,
         0x606326,0x397535,0x287644,0x287368,0x2b6375,0x292823,0x292823,0x292823,
@@ -55,6 +59,7 @@ inline uint32_t color(unsigned index) {
 
 inline uint32_t sprite_color(unsigned index) {
     index &= 63;
+    if (classic_palette) return classic_palette[index];
     if ((index & 15) >= 14 || index == 0x0d || index == 0x1d) return 0xff1f1f1f;
     switch (index) {
     case 0x16: return 0xfff73910;
@@ -84,6 +89,19 @@ inline int wrap(int value, int size) { return (value % size + size) % size; }
 
 inline int unwrap(int value, int reference, int period = 256) {
     return reference + wrap(value - reference + period / 2, period) - period / 2;
+}
+
+// SMB1 Remastered's rainbow star: the sprite's shading over a hue that moves with phase.
+inline uint32_t rainbow(uint32_t pixel, int phase) {
+    const unsigned light = (((pixel >> 16) & 255) * 77 + ((pixel >> 8) & 255) * 151 + (pixel & 255) * 28) >> 8;
+    if (light < 48) return pixel; // Outlines stay dark.
+    const int hue = wrap(phase, 360);
+    auto channel = [&](int n) {
+        const int k = (n * 60 + hue) % 360;
+        const int ramp = std::max(0, std::min({k, 240 - k, 60}));
+        return unsigned(255 - 255 * ramp / 60) * (96 + light * 5 / 8) / 255;
+    };
+    return 0xff000000 | channel(5) << 16 | channel(3) << 8 | channel(1);
 }
 
 inline int native_origin(int camera, int width, int level_width) {

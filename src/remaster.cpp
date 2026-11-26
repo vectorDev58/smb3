@@ -62,7 +62,9 @@ constexpr size_t ChrStart = 262144;
 constexpr uint8_t ResultChrBank = 0x5e;
 constexpr uint32_t GoalBlack = 0xff000000;
 const char *const Characters[] = {"Mario", "Luigi", "Toad", "Toadette"};
+// enhanced picks the art; the widescreen view and the other options apply to both styles.
 int character = 0, enhanced = 1, shadows = 1, view = 2;
+int particles = 1, parallax = 1, modern_hud = 1, rainbow_star = 0;
 bool spanish_ui = false;
 int character_count = 2;
 smb3::FrontendFlow frontend;
@@ -174,33 +176,32 @@ void snapshot() {
 }
 
 void frame_begin(void *) {
-    if (!enhanced) { snapshot_valid = false; return; }
     following_observer = cyc_run_observer;
     following_line = following_observer ? hw_observe_line : -1;
     hw_observe_line = 1;
     cyc_run_observer = snapshot;
 }
 
-int actor_visibility(uint16_t) { return smb3::wide_visibility(cyc_cpu_ram(), enhanced != 0); }
+int actor_visibility(uint16_t) { return smb3::wide_visibility(cyc_cpu_ram(), true); }
 int actor_spawning(uint16_t) {
-    smb3::spawn_visible_actors(cyc_cpu_ram(), enhanced != 0);
+    smb3::spawn_visible_actors(cyc_cpu_ram(), true);
     return 0;
 }
-int projectile_origin(uint16_t) { return smb3::projectile_origin(cyc_cpu_ram(), enhanced != 0); }
-int update_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), enhanced != 0); }
+int projectile_origin(uint16_t) { return smb3::projectile_origin(cyc_cpu_ram(), true); }
+int update_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), true); }
 int projectile_hit(uint16_t) { return smb3::projectile_hit(cyc_cpu_ram()); }
-int update_player_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), enhanced != 0, true); }
+int update_player_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), true, true); }
 int player_projectile_hit(uint16_t) { return smb3::player_projectile_hit(cyc_cpu_ram()); }
-int update_cannon(uint16_t) { return smb3::update_cannon(cyc_cpu_ram(), enhanced != 0); }
-int actor_draw_start(uint16_t) { return smb3::actor_drawing(cyc_cpu_ram(), enhanced != 0, true); }
-int actor_draw_end(uint16_t) { return smb3::actor_drawing(cyc_cpu_ram(), enhanced != 0, false); }
-int actor_keep_visible(uint16_t) { return smb3::keep_visible_actor(cyc_cpu_ram(), enhanced != 0); }
-int remember_collision_box(uint16_t) { return smb3::remember_collision_box(cyc_cpu_ram(), enhanced != 0); }
-int intersect_world_boxes(uint16_t) { return smb3::intersect_world_boxes(cyc_cpu_ram(), enhanced != 0); }
-int shell_block_boundary(uint16_t) { return smb3::shell_block_boundary(cyc_cpu_ram(), enhanced != 0); }
-int player_crush_boundary(uint16_t) { return smb3::player_crush_boundary(cyc_cpu_ram(), enhanced != 0); }
-int player_window_boundary(uint16_t) { return smb3::player_window_boundary(cyc_cpu_ram(), enhanced != 0); }
-int autoscroll_player(uint16_t) { return smb3::autoscroll_player(cyc_cpu_ram(), enhanced != 0); }
+int update_cannon(uint16_t) { return smb3::update_cannon(cyc_cpu_ram(), true); }
+int actor_draw_start(uint16_t) { return smb3::actor_drawing(cyc_cpu_ram(), true, true); }
+int actor_draw_end(uint16_t) { return smb3::actor_drawing(cyc_cpu_ram(), true, false); }
+int actor_keep_visible(uint16_t) { return smb3::keep_visible_actor(cyc_cpu_ram(), true); }
+int remember_collision_box(uint16_t) { return smb3::remember_collision_box(cyc_cpu_ram(), true); }
+int intersect_world_boxes(uint16_t) { return smb3::intersect_world_boxes(cyc_cpu_ram(), true); }
+int shell_block_boundary(uint16_t) { return smb3::shell_block_boundary(cyc_cpu_ram(), true); }
+int player_crush_boundary(uint16_t) { return smb3::player_crush_boundary(cyc_cpu_ram(), true); }
+int player_window_boundary(uint16_t) { return smb3::player_window_boundary(cyc_cpu_ram(), true); }
+int autoscroll_player(uint16_t) { return smb3::autoscroll_player(cyc_cpu_ram(), true); }
 
 const int ActorHooksRegistered[] = {
     nes_mod_register_function_entry_plugin("smb3.wide-visibility", 0xD7AB, actor_visibility),
@@ -437,6 +438,10 @@ void load_setting(void *, const char *key, const char *value) {
     if (!std::strcmp(key, "Character")) integer(value, 0, 3, character);
     if (!std::strcmp(key, "Remastered")) integer(value, 0, 1, enhanced);
     if (!std::strcmp(key, "Shadows")) integer(value, 0, 1, shadows);
+    if (!std::strcmp(key, "BackgroundParticles")) integer(value, 0, 1, particles);
+    if (!std::strcmp(key, "Parallax")) integer(value, 0, 1, parallax);
+    if (!std::strcmp(key, "ModernHud")) integer(value, 0, 1, modern_hud);
+    if (!std::strcmp(key, "RainbowStar")) integer(value, 0, 1, rainbow_star);
     if (!std::strcmp(key, "PresentationAspect")) integer(value, 0, 2, view);
     if (!std::strcmp(key, "Language")) {
         if (!std::strcmp(value, "es")) spanish_ui = true;
@@ -445,8 +450,10 @@ void load_setting(void *, const char *key, const char *value) {
 }
 
 void save_settings(void *, FILE *file) {
-    std::fprintf(file, "Character = %d\nRemastered = %d\nShadows = %d\nPresentationAspect = %d\nLanguage = %s\n",
-                 character, enhanced, shadows, view, smb3_text("en", "es"));
+    std::fprintf(file, "Character = %d\nRemastered = %d\nShadows = %d\nBackgroundParticles = %d\nParallax = %d\n"
+                 "ModernHud = %d\nRainbowStar = %d\nPresentationAspect = %d\nLanguage = %s\n",
+                 character, enhanced, shadows, particles, parallax, modern_hud, rainbow_star, view,
+                 smb3_text("en", "es"));
 }
 
 bool option(void *, const char *name, const char *value) {
@@ -551,13 +558,18 @@ void backdrop_layer(uint32_t *out, int width, const Image &layer, int horizontal
     }
 }
 
+// With parallax off, every scenery layer moves with the ground, like SMB1 Remastered's setting.
+int layer_offset(int camera_left, int width, int divisor) {
+    return smb3::parallax_offset(camera_left, width, parallax ? divisor : 1);
+}
+
 void ambient_particles(uint32_t *out, int width, int camera_left, int tick, smb3::Atmosphere atmosphere) {
     using smb3::Atmosphere;
-    if (atmosphere == Atmosphere::Clear) return;
+    if (!particles || atmosphere == Atmosphere::Clear) return;
     const bool rising = atmosphere == Atmosphere::Bubbles || atmosphere == Atmosphere::Embers;
     const uint32_t color = atmosphere == Atmosphere::Bubbles ? 0x6299c7e5 :
         atmosphere == Atmosphere::Embers ? 0x64de9f73 : atmosphere == Atmosphere::Snow ? 0x91fffdf8 : 0x58ffe9cc;
-    const int offset = smb3::parallax_offset(camera_left, width, 5);
+    const int offset = layer_offset(camera_left, width, 5);
     constexpr int period = 384;
     const int count = atmosphere == Atmosphere::Snow ? 20 : 12;
     for (int i = 0; i < count; ++i) {
@@ -587,7 +599,7 @@ void backdrop(uint32_t *out, int width, int camera_left, int camera_y, const smb
     static const Image missing;
     const Image &sky = style.sky ? image(std::string("Backgrounds/") + style.sky) : missing;
     const int drift = style.fallback_clouds && !style.sky_frame_ticks ? tick / 15 : 0;
-    const int sky_offset = smb3::parallax_offset(camera_left, width, 10) + drift;
+    const int sky_offset = layer_offset(camera_left, width, 10) + drift;
     const bool has_sky = smb3::backdrop_frame(sky, tick, style.sky_frame_ticks).width > 0;
     if (has_sky) {
         backdrop_layer(out, width, sky, sky_offset, style.sky_row, style.sky_opacity, tick, style.sky_frame_ticks);
@@ -610,11 +622,11 @@ void backdrop(uint32_t *out, int width, int camera_left, int camera_y, const smb
     }
     if (style.trees) {
         const Image &trees = image(std::string("Backgrounds/SecondaryTrees/") + style.trees + ".png");
-        backdrop_layer(out, width, trees, smb3::parallax_offset(camera_left, width, 6),
+        backdrop_layer(out, width, trees, layer_offset(camera_left, width, 6),
                        vertical / 2 + trees.height - PlayfieldHeight + 12, 46);
     }
     const Image &hills = style.hills ? image(std::string("Backgrounds/Hills/") + style.hills + ".png") : missing;
-    const int hills_offset = smb3::parallax_offset(camera_left, width, 4);
+    const int hills_offset = layer_offset(camera_left, width, 4);
     if (!hills.empty()) {
         backdrop_layer(out, width, hills, hills_offset, vertical + hills.height - PlayfieldHeight + 8, style.hills_opacity);
     } else if (style.landform != smb3::Landform::None && (style.hills || !has_sky)) {
@@ -627,7 +639,7 @@ void backdrop(uint32_t *out, int width, int camera_left, int camera_y, const smb
             far = smb3::landscape_layer(style, pattern, true);
             previous = style;
         }
-        backdrop_layer(out, width, far, smb3::parallax_offset(camera_left, width, 7),
+        backdrop_layer(out, width, far, layer_offset(camera_left, width, 7),
                        vertical / 2 + far.height - PlayfieldHeight, 255);
         backdrop_layer(out, width, near, hills_offset, vertical + near.height - PlayfieldHeight, 255);
     }
@@ -707,7 +719,7 @@ uint32_t terrain_pixel(unsigned tile, unsigned value, int tileset, int wx, int w
     const int index = (tile >> 6) * 4 + value;
     const uint8_t color = snapshot_valid ? frame_palette[index] : cyc_render_palette(index);
     if (goal_backdrop && index < 4 && color == 0x0f) return GoalBlack;
-    if (frames.light < 255) return smb3::color(color);
+    if (frames.light < 255 || !enhanced) return smb3::color(color);
     return smb3::animated_tile_color(animation, color, value, wx & 15, wy & 15, frames.left / 16);
 }
 
@@ -814,6 +826,8 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
     const int center_y = (player.top + player.bottom + 1) / 2;
     const unsigned light = scenery_light(ram);
     const bool star_palette = ram[0x553] || ram[0x555];
+    const bool rainbow = rainbow_star && ram[0x553]; // Player_StarInv
+    const int rainbow_phase = static_cast<int>((cyc_cycle_count() / 29781) & 0xffffff) * 9;
     int reference_x = body_x - 8;
     int reference_y = shoe ? player.bottom + 1 - 32 :
         lower_row < PlayfieldHeight ? lower_row - 16 : upper_row;
@@ -863,7 +877,9 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
                 if (!role) continue;
                 const int i = py * width + px;
                 const unsigned palette_index = 16 + (reference_attr & 3) * 4 + role;
-                const uint32_t color = rom_luigi ? player_color(sprite_palette(palette_index), ram) :
+                const uint32_t color = rainbow ? smb3::rainbow(rom_luigi ? player_color(sprite_palette(palette_index), ram) :
+                                                               colors[role], rainbow_phase + py * 6) :
+                    rom_luigi ? player_color(sprite_palette(palette_index), ram) :
                     star_palette ? smb3::sprite_color(sprite_palette(palette_index)) : smb3::dim(colors[role], light);
                 sprites[i] = smb3::sprite_priority(sprites[i], color, reference_attr & 0x20, opaque[i]);
             }
@@ -891,7 +907,8 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
                 if (!value) continue;
                 const int palette_index = 16 + (sprite[2] & 3) * 4 + value;
                 const unsigned color = sprite_palette(palette_index);
-                const uint32_t pixel = is_player ? player_color(color, ram) : smb3::sprite_color(color);
+                uint32_t pixel = is_player ? player_color(color, ram) : smb3::sprite_color(color);
+                if (is_player && rainbow) pixel = smb3::rainbow(pixel, rainbow_phase + py * 6);
                 sprites[i] = smb3::sprite_priority(sprites[i], pixel, sprite[2] & 0x20, opaque[i]);
             }
         }
@@ -956,6 +973,13 @@ void draw_hud(uint32_t *out, int width, int origin, const uint32_t *native, bool
             for (int x = 0; x < NativeWidth; ++x) row[origin + x] = hud_color(source[x]);
             std::fill_n(row + origin + NativeWidth, width - origin - NativeWidth, hud_color(source[NativeWidth - 1]));
         }
+        draw_badge(out, width, origin, native, ram);
+        return;
+    }
+    if (!modern_hud) { // The NES status bar in one piece, centered on the band.
+        std::fill_n(out + PlayfieldHeight * width, (Height - PlayfieldHeight) * width, HudBand);
+        for (int y = PlayfieldHeight; y < Height; ++y)
+            for (int x = 8; x < NativeWidth; ++x) out[y * width + origin + x] = hud_color(native[y * NativeWidth + x]);
         draw_badge(out, width, origin, native, ram);
         return;
     }
@@ -1268,7 +1292,6 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
     const uint8_t *ram = snapshot_valid ? frame_ram.data() : cyc_cpu_ram();
     const bool title = in_title(ram);
     const bool starting = cyc_cycle_count() < 300000 || (frontend.active && frontend.screen == smb3::Screen::Intro);
-    if (!enhanced && !(frontend.active && (title || starting))) return 0;
     if ((title || starting) && !(cyc_render_line_mask(80) & 0x18)) {
         std::fill_n(out, width * Height, smb3::StageInk);
         return 1;
@@ -1286,6 +1309,9 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
         draw_title(out, width, native_x0, native, ram);
         return 1;
     }
+    static std::array<uint32_t, 64> console_colors;
+    for (unsigned color = 0; color < 64; ++color) console_colors[color] = cyc_render_color_value(color);
+    if (!enhanced) smb3::classic_palette = console_colors.data(); // compose() restores the remaster's.
     if (ram[0x101] == 0x20) {
         cyc_render_set_native_origin(native_x0);
         for (int y = 0; y < Height; ++y) {
@@ -1334,7 +1360,11 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
     const unsigned light = level ? scenery_light(ram) : 255;
     if (bonus_scene) std::fill_n(out, width * PlayfieldHeight, GoalBlack);
     else {
-        backdrop(out, width, camera - origin, horizontal ? ram[0x543] : 239, style, tick);
+        if (enhanced) backdrop(out, width, camera - origin, horizontal ? ram[0x543] : 239, style, tick);
+        else {
+            std::fill_n(out, width * PlayfieldHeight, smb3::color(background_color));
+            ambient_particles(out, width, camera - origin, tick, style.atmosphere);
+        }
         if (light < 255)
             for (int i = 0; i < width * PlayfieldHeight; ++i) out[i] = smb3::dim(out[i], light);
     }
@@ -1352,8 +1382,10 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
         // The result and dialogue font takes over the second bank. Keep the room's terrain graphics.
         if (ram[0x71a] == ResultChrBank && layout < 23)
             chr_banks[1] = rom[0x3d779 + layout];
-        const TileFrames frames{image("Blocks/QuestionBlock.png"), image("Tilesets/Terrain/BrickBlock.png"),
-            image("Items/StaticCoin.png"), (tick / 12 % 4) * 16,
+        static const Image classic_tile;
+        auto pack = [&](const char *name) -> const Image & { return enhanced ? image(name) : classic_tile; };
+        const TileFrames frames{pack("Blocks/QuestionBlock.png"), pack("Tilesets/Terrain/BrickBlock.png"),
+            pack("Items/StaticCoin.png"), (tick / 12 % 4) * 16,
             smb3::atlas_row(style.scenery, false) * 16, smb3::atlas_row(style.scenery, true) * 16, light};
         // Level_MinTileUWByQuad and Tile_AttrTable give the swimming range of each palette group.
         const uint8_t *water_limits = rom.data() + 0x200 + (tileset - 1) * 4;
@@ -1510,7 +1542,9 @@ int compose(uint32_t *out, int width, int height, int native_x0, const uint32_t 
         return 1;
     }
 #endif
-    return compose_game(out, width, height, native_x0, native, context);
+    const int composed = compose_game(out, width, height, native_x0, native, context);
+    smb3::classic_palette = nullptr; // The menus always use the remaster's colors.
+    return composed;
 }
 
 #ifdef CYC_WITH_RECOMP_UI
@@ -1716,6 +1750,8 @@ void practice_restore_campaign() {
 }
 
 const char *const Styles[] = {"Classic NES", "Remastered"};
+const char *const HudStyles[] = {"Classic", "Remastered"};
+const char *const StarStyles[] = {"Classic", "Rainbow"};
 const char *const Languages[] = {"English", "Español"};
 const RecompRuntimeUiItem MenuItems[] = {
     {"smb3.language", "System", "Language", "Choose the language of the menus.",
@@ -1724,10 +1760,18 @@ const RecompRuntimeUiItem MenuItems[] = {
      RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
     {"smb3.character", "Remastered", "Characters", "Open character selection.",
      RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
-    {"smb3.graphics", "Remastered", "Visual style", "Choose the classic or remastered presentation.",
+    {"smb3.graphics", "Remastered", "Visual style", "Classic NES art keeps the widescreen view and every option below.",
      RECOMP_RUNTIME_UI_CHOICE, 0, 1, 1, Styles, 2, nullptr},
     {"smb3.shadows", "Remastered", "Shadows", "Show scenery and character shadows.",
      RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"smb3.particles", "Remastered", "Background particles", "Snow, embers, bubbles and wind over the scenery.",
+     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"smb3.parallax", "Remastered", "Parallax", "Far scenery scrolls slower than the ground.",
+     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"smb3.hud", "Remastered", "HUD", "Split panels at the screen edges, or the NES status bar.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 1, 1, HudStyles, 2, nullptr},
+    {"smb3.star", "Remastered", "Star effect", "Colors of the player during star power.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 1, 1, StarStyles, 2, nullptr},
     {"smb3.practice", "Practice", "Tools", "Test powers, lives, and levels.",
      RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
 };
@@ -1735,6 +1779,10 @@ int menu_get(void *, const RecompRuntimeUiItem *item, int *value) {
     if (!std::strcmp(item->key, "smb3.language")) *value = spanish_ui;
     else if (!std::strcmp(item->key, "smb3.graphics")) *value = enhanced;
     else if (!std::strcmp(item->key, "smb3.shadows")) *value = shadows;
+    else if (!std::strcmp(item->key, "smb3.particles")) *value = particles;
+    else if (!std::strcmp(item->key, "smb3.parallax")) *value = parallax;
+    else if (!std::strcmp(item->key, "smb3.hud")) *value = modern_hud;
+    else if (!std::strcmp(item->key, "smb3.star")) *value = rainbow_star;
     else return 0;
     return 1;
 }
@@ -1746,6 +1794,10 @@ int menu_set(void *, const RecompRuntimeUiItem *item, int value) {
     }
     if (!std::strcmp(item->key, "smb3.graphics")) enhanced = value;
     else if (!std::strcmp(item->key, "smb3.shadows")) shadows = value;
+    else if (!std::strcmp(item->key, "smb3.particles")) particles = value;
+    else if (!std::strcmp(item->key, "smb3.parallax")) parallax = value;
+    else if (!std::strcmp(item->key, "smb3.hud")) modern_hud = value;
+    else if (!std::strcmp(item->key, "smb3.star")) rainbow_star = value;
     else return 0;
     cyc_render_frame_done();
     return 1;
