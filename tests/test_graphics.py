@@ -10,7 +10,7 @@ import zipfile
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from graphics import import_controls, import_graphics, png_size, stage_graphics
+from graphics import import_controls, import_graphics, png_size, stage_graphics, validate_full_graphics
 
 
 def png(width=256, height=128):
@@ -110,6 +110,15 @@ class GraphicsTests(unittest.TestCase):
         staged = self.root / "build/assets/remaster"
         self.assertEqual((staged / "Players/Toad/Map.png").read_bytes(), atlas.read_bytes())
         self.assertTrue((staged / "Backgrounds/Skies/DaySky.png").is_file())
+
+    def test_complete_package_requires_the_character_and_controller_imports(self):
+        self.archive()
+        import_graphics(self.source, self.destination)
+        with self.assertRaises(ValueError) as error:
+            validate_full_graphics(self.destination)
+        for name in ("Players/Luigi/Campaign.png", "Players/Toad/Map.png",
+                     "Players/Toadette/Airborne.png", "Controls/Hints.png"):
+            self.assertIn(name, str(error.exception))
 
     @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is required for the icon importer")
     def test_imports_control_icons_independently_and_preserves_them_on_failure(self):

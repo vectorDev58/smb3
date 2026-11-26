@@ -6,7 +6,7 @@ I started this project because I wanted to play a remastered version of Mario 3 
 
 ## Download and play
 
-Download the package for your platform from **Releases** on GitHub. For a development build, open a successful run under **Actions → Build and test without a ROM**, download its platform artifact, and extract the archive inside it. The prebuilt version runs without Python or a compiler.
+Download the package for your platform from **Releases** on GitHub. For a development build, open a successful run under **Actions → Build and test without a ROM** and download the same package from **Artifacts**. Extract it once and launch the executable. The prebuilt version runs without Python or a compiler.
 
 | Platform | Package | Launch |
 | --- | --- | --- |
@@ -30,6 +30,8 @@ cd smb3-pc-linux-x86_64
 2. Accept the notice to start the theatrical intro. Enter or Start skips the intro.
 3. Choose **Play**. Use left and right to pick a character and up and down to select **1 Player** or **2 Players**. Confirm with Enter or A.
 4. Move around the world map and enter a stage with Z or A.
+
+The ROM is the only game file you need to supply. The default remastered presentation includes themed backgrounds, layered scenery, animated blocks and coins, translucent water, and input hints that switch between keyboard and Xbox-style controllers.
 
 If the file picker is unavailable, pass the ROM path directly, for example `./smb3 "/path/to/game.nes"` on Linux or `.\smb3.exe "C:\Games\game.nes"` in PowerShell. The picker validates the ROM and remembers its path for the next launch. Keep `config.ini`, `rom.cfg`, and `saves/` from your old folder when moving to a new release. Save states are tied to a compatible ROM and engine build.
 
@@ -62,7 +64,7 @@ English is the default. Open **Settings → System → Language** and use Left o
 
 ## Project status
 
-The ROM supplies the game logic, stages, music, effects, and base graphics. This project adds window-size and widescreen modes, rebuilt scenery and layers, translucent water, character and map presentation, and a pause menu that keeps the scene visible and muffles the music. Mario and Luigi are available from the ROM. The optional local graphics import also enables Toad and Toadette as alternate appearances with the original gameplay rules.
+The ROM supplies the game logic, stages, music, effects, and base graphics. The runtime reads the original tile patterns and palettes when you start the game and combines them with generated background layers and highlights. The grassland scenery reuses the triangular texture from the ROM. Mario and Luigi are available with these default graphics. The optional local graphics import adds alternate backgrounds and character artwork and enables Toad and Toadette with the original gameplay rules.
 
 Local testing covers title and character selection, pause, the route into World 1-1, save and restore, and all eight world maps. Longer recorded runs reached later worlds and the final castle, then lost input synchronization before the ending. The test report records the exact coverage and assisted setups. [Validation notes in Spanish](docs/VALIDATION.md)
 
@@ -99,7 +101,7 @@ py -3 tools/smb3.py build
 
 ### Optional local art and input icons
 
-Run these from a source checkout with your own copies of the packs. The character-sheet and icon importers require Pillow, available via `sudo apt install python3-pil` on Ubuntu or `py -3 -m pip install Pillow` on Windows.
+Use these imports if you want the alternate art or the additional characters. Run them from a source checkout with your own copies of the packs. The character-sheet and icon importers require Pillow, available via `sudo apt install python3-pil` on Ubuntu or `py -3 -m pip install Pillow` on Windows.
 
 ```sh
 python3 tools/smb3.py import-graphics "/path/to/smb3-mastered_v0_9.zip"
@@ -108,6 +110,12 @@ python3 tools/smb3.py import-controls "/path/to/Controllers and Keyboard.zip"
 ```
 
 The importers stage the generated files in `assets/remaster/` beside the source build's executable, normally under `build/` on Linux or `build/Release/` on Windows. For a prebuilt release, copy that generated `assets/remaster/` folder beside its extracted executable. GitHub packages contain the runtime, configuration, and notices. ROMs, optional packs, and generated game art are supplied locally.
+
+### Package your local build with its artwork
+
+After preparing the art and building the executable, run `python3 tools/smb3.py package-local` on Linux or `py -3 tools/smb3.py package-local` on Windows. The archive in `private/packages/` includes the four character appearances, their selector and map poses, the alternate scenery, and the imported keyboard and Xbox icons. Extract it once and select your ROM on first launch.
+
+The full package expects the prepared campaign atlases for Luigi, Toad, and Toadette. For a new setup, use `import-graphics --powers` with a directory containing `Toad/Campaign.png` and `Toadette/Campaign.png`, and `import-characters --luigi-campaign` with Luigi's prepared atlas. An existing import that already has those atlases can be packaged directly. The archive uses the same runtime installer and credits as the GitHub build. Keep it with your local imports.
 
 ## Contribute
 
@@ -126,7 +134,7 @@ For changes to gameplay or rendering, the validation notes list ROM-dependent lo
 
 ## Build artifacts and releases
 
-The workflow compiles and tests the runtime for Windows and Linux on branch pushes, pull requests, and manual runs. Both packages are downloadable from the run's **Artifacts** section. The Linux job also produces the source ZIP. [Build workflow](.github/workflows/check.yml)
+The workflow compiles and tests the runtime for Windows and Linux on branch pushes, pull requests, and manual runs. The platform archives and the source ZIP are uploaded directly to **Artifacts**, ready to extract. [Build workflow](.github/workflows/check.yml)
 
 To build the packages locally after a standard build:
 

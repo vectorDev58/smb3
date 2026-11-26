@@ -561,7 +561,7 @@ void ui_hints(float y, float scale, std::initializer_list<Hint> hints) {
     const float size = 16 * scale, gap = 18 * scale;
     auto measure = [&](const char *text) { return font->CalcTextSizeA(size, 100000, 0, text).x; };
     auto input_width = [&](HintIcon icon) {
-        return has_icons ? 48 * scale : measure(keys[controller_hints][static_cast<int>(icon)]);
+        return has_icons ? 48 * scale : measure(keys[controller_hints][static_cast<int>(icon)]) + 14 * scale;
     };
     float width = -gap;
     for (const auto &hint : hints)
@@ -570,9 +570,17 @@ void ui_hints(float y, float scale, std::initializer_list<Hint> hints) {
     auto *draw = ImGui::GetForegroundDrawList();
     for (const auto &hint : hints) {
         const int cell = static_cast<int>(hint.icon);
+        const float cap_width = input_width(hint.icon);
         if (has_icons) ui_image(icons, ImVec2(x, y), 1.5f * scale, {32 * cell, controller_hints ? 16 : 0, 32, 16});
-        else draw->AddText(font, size, ImVec2(x, y + 4 * scale), ui_color(MenuGold), keys[controller_hints][cell]);
-        x += input_width(hint.icon);
+        else {
+            const unsigned face = !controller_hints ? MenuInk : hint.icon == HintIcon::Confirm ? 0x29634c :
+                hint.icon == HintIcon::Back ? 0x7b3d35 : hint.icon == HintIcon::Clear ? 0x765221 : MenuInk;
+            ui_rect(draw, x + 2 * scale, y + 2 * scale, cap_width, 24 * scale, MenuInk);
+            ui_rect(draw, x, y, cap_width, 24 * scale, MenuGold);
+            ui_rect(draw, x + 2 * scale, y + 2 * scale, cap_width - 4 * scale, 20 * scale, face);
+            draw->AddText(font, size, ImVec2(x + 7 * scale, y + 4 * scale), ui_color(MenuWhite), keys[controller_hints][cell]);
+        }
+        x += cap_width;
         if (*hint.label) {
             x += 6 * scale;
             draw->AddText(font, size, ImVec2(x, y + 4 * scale), ui_color(MenuWhite), hint.label);

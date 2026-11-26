@@ -121,6 +121,31 @@ def stage_graphics(root, binary_directory):
             shutil.copytree(source, Path(binary_directory) / "assets/remaster", dirs_exist_ok=True)
 
 
+def validate_full_graphics(directory):
+    required = {**PLAYER_SHEETS, **dict(ANIMATION_SHEETS.values()), "Controls/Hints.png": (224, 32),
+                "Backgrounds/Skies/DaySky.png": None, "Backgrounds/Hills/Overworld.png": None}
+    for character in ("Mario", "Luigi", "Toad", "Toadette"):
+        required[f"Players/{character}/Selector.png"] = (64, 32)
+    for character in ("Luigi", "Toad", "Toadette"):
+        required.update({f"Players/{character}/{name}.png": size for name, size in
+                         (("Campaign", (3072, 224)), ("Map", (192, 224)), ("Airborne", (352, 224)))})
+    missing = [name for name in required if not (directory / name).is_file()]
+    if missing:
+        raise ValueError("Falta arte local para el paquete completo. " + ", ".join(sorted(missing)))
+    for path in directory.rglob("*"):
+        if path.is_dir():
+            continue
+        name = path.relative_to(directory).as_posix()
+        if name in {"manifest.json", "character-reference.json"}:
+            continue
+        if path.suffix != ".png":
+            raise ValueError(f"Archivo inesperado entre los gráficos locales: {name}")
+        with path.open("rb") as image:
+            size = png_size(image.read(24), name)
+        if required.get(name) and size != required[name]:
+            raise ValueError(f"Dimensiones de PNG incompatibles: {name}")
+
+
 def import_character_reference(source, destination, luigi_campaign=None):
     """Preparar las poses del selector, del mapa y del vuelo de la hoja aportada."""
     try:

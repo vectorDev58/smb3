@@ -262,6 +262,11 @@ int main() {
     assert(skyland.fallback_clouds && !skyland.hills);
     const auto hills = smb3::level_backdrop(0, 3, 19, 0x90, 0x3c, 0);
     assert(hills.scenery == smb3::Scenery::Grass && hills.fallback_clouds);
+    const auto foreground = smb3::landscape_layer(hills, tile, false);
+    const auto distant = smb3::landscape_layer(hills, tile, true);
+    assert(foreground.at(13, 0) == 0 && foreground.at(13, 90) >> 24 == 255);
+    assert(foreground.pixels != distant.pixels);
+    assert(smb3::landscape_layer(cabin, tile, true).empty());
     const smb3::Image two_frames{1024, 512, {}};
     assert(smb3::backdrop_frame(two_frames, 11, 12).left == 0);
     assert(smb3::backdrop_frame(two_frames, 12, 12).left == 512);
@@ -291,4 +296,8 @@ int main() {
     assert(smb3::tile_animation(0x66) == smb3::TileAnimation::None);
     assert(smb3::tile_animation(0x70) == smb3::TileAnimation::Brick);
     assert(smb3::tile_animation(0x40) == smb3::TileAnimation::Coin);
+    const auto question = smb3::TileAnimation::Question;
+    assert(smb3::animated_tile_color(question, 0x0f, 1, 5, 2, 0) == smb3::color(0x0f));
+    assert(smb3::animated_tile_color(question, 0x27, 3, 5, 2, 0) !=
+           smb3::animated_tile_color(question, 0x27, 3, 5, 2, 1));
 }

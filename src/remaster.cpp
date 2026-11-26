@@ -411,16 +411,18 @@ uint8_t sprite_palette(unsigned index) {
     return snapshot_valid ? frame_palette[index] : cyc_render_palette(index);
 }
 
-void cloud(uint32_t *out, int width, int cx, int cy, uint32_t tint) {
-    for (int y = 0; y < 18; ++y)
-        for (int x = 0; x < 42; ++x) {
-            const bool inside = (x - 9) * (x - 9) + (y - 12) * (y - 12) < 9 * 9 ||
-                                (x - 20) * (x - 20) + (y - 10) * (y - 10) < 11 * 11 ||
-                                (x - 32) * (x - 32) + (y - 13) * (y - 13) < 8 * 8;
-            int dx = cx + x, dy = cy + y;
-            if (inside && dx >= 0 && dx < width && dy >= 0 && dy < PlayfieldHeight)
-                out[dy * width + dx] = tint;
+void cloud(uint32_t *out, int width, int left, int top, int span, uint32_t sky) {
+    const uint32_t light = smb3::blend(sky, 0x81fffdf6), shade = smb3::blend(sky, 0x52fffdf6);
+    for (int y = 0; y < 17; ++y) {
+        for (int dx = std::max(-left, 0); dx < std::min(span, width - left); ++dx) {
+            const int x = dx * 48 / span;
+            const bool inside = (x - 9) * (x - 9) + (y - 14) * (y - 14) < 8 * 8 ||
+                (x - 21) * (x - 21) + (y - 11) * (y - 11) < 10 * 10 ||
+                (x - 31) * (x - 31) + (y - 10) * (y - 10) < 8 * 8 ||
+                (x - 40) * (x - 40) + (y - 15) * (y - 15) < 6 * 6;
+            if (inside) out[(top + y) * width + left + dx] = y < 14 ? light : shade;
         }
+    }
 }
 
 void backdrop_layer(uint32_t *out, int width, const Image &layer, int horizontal, int top, unsigned opacity,
@@ -479,14 +481,24 @@ void backdrop(uint32_t *out, int width, int camera_left, int camera_y, const smb
     const Image &sky = style.sky ? image(std::string("Backgrounds/") + style.sky) : missing;
     const int drift = style.fallback_clouds && !style.sky_frame_ticks ? tick / 15 : 0;
     const int sky_offset = smb3::parallax_offset(camera_left, width, 10) + drift;
-    if (!sky.empty()) {
+    const bool has_sky = smb3::backdrop_frame(sky, tick, style.sky_frame_ticks).width > 0;
+    if (has_sky) {
         backdrop_layer(out, width, sky, sky_offset, style.sky_row, style.sky_opacity, tick, style.sky_frame_ticks);
     } else if (style.fallback_clouds) {
-        const uint32_t tint = smb3::blend(style.base, 0x78fffdf6);
-        const int offset = smb3::wrap(sky_offset, 284);
-        for (int x = -284; x < width + 284; x += 284) {
-            cloud(out, width, x + 38 - offset, 25, tint);
-            cloud(out, width, x + 174 - offset, 73, tint);
+        constexpr int Period = 416;
+        const int offset = smb3::wrap(sky_offset, Period);
+        for (int x = -Period; x < width + Period; x += Period) {
+            cloud(out, width, x + 54 - offset, 33, 56, style.base);
+            cloud(out, width, x + 244 - offset, 75, 36, style.base);
+        }
+    } else if (style.sky_frame_ticks && style.atmosphere != smb3::Atmosphere::Bubbles) {
+        constexpr int Period = 384;
+        for (int i = 0; i < 15; ++i) {
+            const int y = 12 + i * 23 % 109;
+            const unsigned alpha = (tick / 24 + i) % 5 == 0 ? 120 : 55;
+            const uint32_t star = smb3::blend(style.base, alpha << 24 | 0xfff1cc);
+            for (int x = smb3::wrap(15 + i * 73 - sky_offset, Period); x < width; x += Period)
+                out[y * width + x] = star;
         }
     }
     if (style.trees) {
@@ -498,16 +510,19 @@ void backdrop(uint32_t *out, int width, int camera_left, int camera_y, const smb
     const int hills_offset = smb3::parallax_offset(camera_left, width, 4);
     if (!hills.empty()) {
         backdrop_layer(out, width, hills, hills_offset, vertical + hills.height - PlayfieldHeight + 8, style.hills_opacity);
-    } else if (style.horizon != style.base) {
-        for (int x = 0; x < width; ++x) {
-            const int a = smb3::wrap(x + hills_offset, 128) - 64;
-            const int b = smb3::wrap(x + hills_offset / 2 + 50, 168) - 84;
-            const int far = std::clamp(146 + b * b / 225 - vertical, 0, PlayfieldHeight);
-            const int near = std::clamp(162 + a * a / 164 - vertical, 0, PlayfieldHeight);
-            for (int y = far; y < PlayfieldHeight; ++y)
-                out[y * width + x] = smb3::blend(out[y * width + x], (style.horizon & 0xffffff) | 0x66000000);
-            for (int y = near; y < PlayfieldHeight; ++y) out[y * width + x] = style.horizon;
+    } else if (style.landform != smb3::Landform::None && (style.hills || !has_sky)) {
+        static smb3::Backdrop previous{};
+        static Image near, far;
+        if (previous.landform != style.landform || previous.base != style.base || previous.horizon != style.horizon) {
+            // Use the grassland metatile's repeating triangular texture from the supplied ROM.
+            const auto *pattern = rom.size() == 393216 ? rom.data() + ChrStart + 8 * 1024 + 0x0f * 16 : nullptr;
+            near = smb3::landscape_layer(style, pattern, false);
+            far = smb3::landscape_layer(style, pattern, true);
+            previous = style;
         }
+        backdrop_layer(out, width, far, smb3::parallax_offset(camera_left, width, 7),
+                       vertical / 2 + far.height - PlayfieldHeight, 255);
+        backdrop_layer(out, width, near, hills_offset, vertical + near.height - PlayfieldHeight, 255);
     }
     ambient_particles(out, width, camera_left, tick, style.atmosphere);
 }
@@ -579,7 +594,9 @@ uint32_t terrain_pixel(unsigned tile, unsigned value, int tileset, int wx, int w
     if (!value) return 0;
     const int index = (tile >> 6) * 4 + value;
     const uint8_t color = snapshot_valid ? frame_palette[index] : cyc_render_palette(index);
-    return goal_backdrop && index < 4 && color == 0x0f ? GoalBlack : smb3::color(color);
+    if (goal_backdrop && index < 4 && color == 0x0f) return GoalBlack;
+    if (frames.light < 255) return smb3::color(color);
+    return smb3::animated_tile_color(animation, color, value, wx & 15, wy & 15, frames.left / 16);
 }
 
 struct PlayerBounds {

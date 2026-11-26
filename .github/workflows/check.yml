@@ -82,10 +82,9 @@ jobs:
       - name: Upload the packaged executable
         uses: actions/upload-artifact@v7
         with:
-          name: smb3-pc-${{ matrix.platform }}
           path: dist/smb3-pc-${{ matrix.platform }}.${{ matrix.archive }}
           if-no-files-found: error
-          compression-level: 0
+          archive: false
           overwrite: true
       - name: Package the source
         if: runner.os == 'Linux'
@@ -94,10 +93,9 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          name: smb3-pc-source
           path: dist/smb3-pc-source.zip
           if-no-files-found: error
-          compression-level: 0
+          archive: false
           overwrite: true
 
   release:
@@ -116,6 +114,7 @@ jobs:
           pattern: smb3-pc-*
           path: packages
           merge-multiple: true
+          skip-decompress: true
       - name: Attach packages to the draft
         shell: bash
         env:
