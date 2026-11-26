@@ -24,10 +24,15 @@ constexpr int CampaignSheetWidth = 1961, CampaignSheetHeight = 4290, CampaignFra
 
 struct SheetPose { int x, row, height, padding; };
 
-// Columns and rows of Mario's block. Luigi, Toad and Toadette share the layout.
-inline std::array<SheetPose, CampaignFrames> campaign_poses(unsigned suit) {
+// Columns and rows of Mario's block (character 0). Luigi (1), Toad (2) and Toadette (3) share it,
+// except that Luigi has an "SMA4 Jump" group before "Carry Item" in four suits and Toadette has a
+// "Turn" cell before each kick and a "Carried" group in the frog row, which move those cells.
+inline std::array<SheetPose, CampaignFrames> campaign_poses(unsigned suit, int character = 0) {
     static constexpr int rows[] = {24, 212, 484, 751, 1114, 1423, 1786};
     const int main = rows[suit], height = suit ? 32 : 16;
+    const bool sma4_jump = character == 1 && (suit <= 2 || suit == 6);
+    const int carry_shift = sma4_jump ? (suit ? 103 : 70) : character == 3 && !suit ? 34 : 0;
+    const int kick_shift = carry_shift + (character == 3 && suit ? 37 : 0);
     std::array<SheetPose, CampaignFrames> poses;
     poses.fill({1, main, height, 32 - height});
     auto assign = [&](const std::vector<int> &frames, const std::vector<int> &columns, int row = -1, int padding = -1) {
@@ -49,10 +54,10 @@ inline std::array<SheetPose, CampaignFrames> campaign_poses(unsigned suit) {
         assign({0x4b}, {774});
         assign({0x1a, 0x1b, 0x1c, 0x1d}, {1, 34, 67, 100}, 64);
         assign({92, 93, 94, 95}, {133, 166, 199, 232}, 64);
-        assign({0x29, 0x2a, 0x2b, 0x2e, 0x2f}, {620, 653}, 64);
-        assign({82}, {583}, 64);
-        assign({90, 91}, {690, 723}, 64);
-        assign({0x2d, 0x42}, {797}, 64);
+        assign({0x29, 0x2a, 0x2b, 0x2e, 0x2f}, {620 + carry_shift, 653 + carry_shift}, 64);
+        assign({82}, {583 + carry_shift}, 64);
+        assign({90, 91}, {690 + carry_shift, 723 + carry_shift}, 64);
+        assign({0x2d, 0x42}, {797 + kick_shift}, 64);
         assign({0x43}, {1}, 182, 4);
     } else if (suit == 1 || suit == 2 || suit == 6) {
         assign({0, 1, 2, 0x0c, 0x0d, 0x0e}, {108, 141, 174});
@@ -75,10 +80,10 @@ inline std::array<SheetPose, CampaignFrames> campaign_poses(unsigned suit) {
         const int star = c[0], first = suit == 1 ? 1 : 71;
         assign({0x1a, 0x1b, 0x1c, 0x1d}, {first, first + 33, first + 66, first + 99}, star);
         assign({92, 93, 94, 95}, {first + 132, first + 165, first + 198, first + 231}, star);
-        assign({0x29, 0x2a, 0x2b}, {c[2], c[3], c[4]}, star);
-        assign({82}, {c[1]}, star);
-        assign({90, 91}, {c[5], c[6]}, star);
-        assign({0x2d}, {c[7]}, star);
+        assign({0x29, 0x2a, 0x2b}, {c[2] + carry_shift, c[3] + carry_shift, c[4] + carry_shift}, star);
+        assign({82}, {c[1] + carry_shift}, star);
+        assign({90, 91}, {c[5] + carry_shift, c[6] + carry_shift}, star);
+        assign({0x2d}, {c[7] + kick_shift}, star);
         if (suit != 1) assign({0x10, 0x11, 87, 88, 89}, {1, 34}, star);
         assign({0x18}, {1}, suit == 1 ? 438 : suit == 2 ? 705 : 2007);
     } else if (suit == 3 || suit == 5) {
@@ -103,12 +108,12 @@ inline std::array<SheetPose, CampaignFrames> campaign_poses(unsigned suit) {
         assign({0x29, 0x2a, 0x2b}, {306, 339, 372}, carry);
         assign({82}, {269}, carry);
         assign({90, 91}, {512, 545}, carry);
-        assign({0x2d}, {858}, carry);
+        assign({0x2d}, {858 + kick_shift}, carry);
         assign({0x18}, {1}, suit == 3 ? 1068 : 1740);
     } else {
         assign({0, 1, 2, 0x15, 0x16, 0x17}, {108, 141, 174});
         assign({0x07, 0x0f}, {38});
-        assign({0x30, 0x41}, {248});
+        assign({0x30, 0x41}, {244});
         assign({0x06, 0x4f, 0x50, 0x38}, {281, 314});
         assign({0x05, 0x32, 83}, {384});
         assign({0x1f, 0x20}, {421, 454});
@@ -122,9 +127,10 @@ inline std::array<SheetPose, CampaignFrames> campaign_poses(unsigned suit) {
         assign({92, 93, 94, 95}, {240, 273, 306, 339}, 1158);
         assign({0x29, 0x2a, 0x2b}, {38, 71, 104}, 1212);
         assign({82}, {1}, 1212);
-        assign({90, 91}, {211, 244}, 1212);
-        assign({0x2d}, {487}, 1212);
-        assign({0x18}, {1}, 1377);
+        assign({90, 91}, {244, 277}, 1212);
+        assign({0x2d}, {487 + kick_shift}, 1212);
+        // Toadette's frog row starts with a five-cell "Carried" group before Goomba's Shoe.
+        assign({0x18}, {character == 3 ? 178 : 1}, 1377);
     }
     poses[0x0b] = {1, 24, 16, 16};
     poses[0x27] = {1, 212, 32, 0};
@@ -157,7 +163,7 @@ inline NamedImages campaign_art(const Image &sheet) {
         const int left = character == 2 ? 0 : 980, top = character == 1 ? 0 : 2041;
         Image atlas = blank_image(CampaignFrames * 32, 7 * 32);
         for (unsigned suit = 0; suit < 7; ++suit) {
-            const auto poses = campaign_poses(suit);
+            const auto poses = campaign_poses(suit, character);
             for (int frame = 0; frame < CampaignFrames; ++frame) {
                 const SheetPose &pose = poses[frame];
                 // Frame $27 is scaled from 32 to 24 rows. Pillow's nearest-neighbour resize

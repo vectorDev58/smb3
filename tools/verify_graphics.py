@@ -7,10 +7,40 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import zlib
 
 from smb3 import ROOT, executable, read_rom
 from verify import cpu_ram_from_log
 from verify_widescreen import captures
+
+
+def png_rows(path):
+    """Decoded rows of an 8-bit RGB/RGBA PNG, enough to compare regions without Pillow."""
+    data = Path(path).read_bytes()
+    width, height, depth, kind = struct.unpack(">IIBB", data[16:26])
+    assert depth == 8 and kind in (2, 6), path
+    channels = 3 if kind == 2 else 4
+    stream, offset = b"", 8
+    while offset < len(data):
+        length, chunk = struct.unpack(">I4s", data[offset:offset + 8])
+        if chunk == b"IDAT": stream += data[offset + 8:offset + 8 + length]
+        offset += 12 + length
+    raw, stride, rows, previous = zlib.decompress(stream), width * channels, [], bytes(width * channels)
+    for y in range(height):
+        kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            left = line[i - channels] if i >= channels else 0
+            up, corner = previous[i], previous[i - channels] if i >= channels else 0
+            if kind == 1: line[i] = (line[i] + left) & 255
+            elif kind == 2: line[i] = (line[i] + up) & 255
+            elif kind == 3: line[i] = (line[i] + (left + up) // 2) & 255
+            elif kind == 4:
+                estimate = left + up - corner
+                pa, pb, pc = abs(estimate - left), abs(estimate - up), abs(estimate - corner)
+                line[i] = (line[i] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 255
+        rows.append(bytes(line))
+        previous = line
+    return rows
 
 
 def main():
@@ -138,7 +168,8 @@ def main():
                    "--present-out", out / f"{name}.png"])
         ram = cpu_ram_from_log(memory)
         assert ram[0x554] and ram[0xed] == 3, "La hoja no activó la transformación nativa"
-        assert (out / f"{name}.png").read_bytes() == (out / "leaf-poof-mario.png").read_bytes(), \
+        # The playfield must match Mario's; the status bar shows each character's own badge.
+        assert png_rows(out / f"{name}.png")[:192] == png_rows(out / "leaf-poof-mario.png")[:192], \
             f"El sprite de {character} tapó el humo de transformación"
     print(f"Humo de transformación visible para los {len(characters)} personajes.", flush=True)
 

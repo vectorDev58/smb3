@@ -4,7 +4,9 @@ ImFont *ui_regular = nullptr;
 smb3::MenuArt ui_art;
 bool ui_fonts_ready = false, ui_texture_ready = false, ui_focus = true;
 int main_choice = 0, pause_choice = 0;
+const char *character_error = "";
 bool controller_hints = false;
+bool ui_mouse = false; // The last pointer motion or click is newer than any key or button.
 unsigned consumed_controller_buttons = 0;
 
 void frontend_pause() {
@@ -23,7 +25,7 @@ int practice_row = 0, practice_power = 0, practice_world = 0, practice_level = 0
 std::string binding_status;
 struct CharacterChoice {
     smb3::Screen back = smb3::Screen::Main;
-    bool start_campaign = false;
+    bool start_campaign = false, new_game = false, load_save = false;
     int index = 0, players = 1;
 } character_choice;
 
@@ -67,8 +69,10 @@ void frontend_settings(smb3::Screen back) {
     for (size_t i = 0; i < selected; ++i)
         recomp_runtime_ui_handle_input(cyc_ui_runtime(), RECOMP_RUNTIME_UI_INPUT_UP, 1, 0);
 }
-void frontend_characters(smb3::Screen back, bool start_campaign) {
-    character_choice = {back, start_campaign, character, frontend.players};
+void frontend_characters(smb3::Screen back, bool start_campaign, bool new_game) {
+    character_choice = {back, start_campaign, new_game, start_campaign && !new_game && !frontend.started &&
+                        campaign_save_world >= 0, character, frontend.players};
+    character_error = "";
     frontend_screen(smb3::Screen::Characters);
 }
 void close_character_choice() {
@@ -134,9 +138,12 @@ int frontend_event(const SDL_Event *event) {
     if (event->type == SDL_CONTROLLERDEVICEREMOVED ||
         (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_FOCUS_LOST))
         consumed_controller_buttons = 0;
-    if (key || pad) controller_hints = pad;
-    if (event->type == SDL_CONTROLLERAXISMOTION && std::abs(event->caxis.value) > 24000) controller_hints = true;
-    if (event->type == SDL_MOUSEBUTTONDOWN) controller_hints = false;
+    if (key || pad) { controller_hints = pad; ui_mouse = false; }
+    if (event->type == SDL_CONTROLLERAXISMOTION && std::abs(event->caxis.value) > 24000) { controller_hints = true; ui_mouse = false; }
+    if (event->type == SDL_MOUSEBUTTONDOWN || (event->type == SDL_MOUSEMOTION && (event->motion.xrel || event->motion.yrel))) {
+        controller_hints = false;
+        ui_mouse = true;
+    }
     if (binding_button >= 0) {
         if (pad && event->cbutton.button < SDL_CONTROLLER_BUTTON_MAX)
             consumed_controller_buttons |= 1u << event->cbutton.button;
@@ -199,13 +206,18 @@ void ui_rect(ImDrawList *draw, float x, float y, float width, float height, unsi
     draw->AddRectFilled(ImVec2(edge(x), edge(y)), ImVec2(edge(x + width), edge(y + height)), ui_color(color));
 }
 
+// Over the paused game the screens are dimmed, so their text switches from ink to white.
+unsigned ui_ink() { return frontend.settings_return == smb3::Screen::Pause ? MenuWhite : MenuInk; }
+void ui_dim(unsigned alpha) {
+    ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize, IM_COL32(0, 0, 0, alpha));
+}
+
 float ui_scale(ImVec2 screen) {
     return std::clamp(std::min(screen.x / 1000.f, screen.y / 720.f), .25f, 3.f);
 }
 
-void ui_text(const char *text, float size, float y, unsigned rgb = 0x292823, bool outline = false) {
+void ui_text_at(const char *text, float size, float x, float y, unsigned rgb, bool outline) {
     ImFont *font = ui_regular ? ui_regular : ImGui::GetFont();
-    const float x = (ImGui::GetIO().DisplaySize.x - font->CalcTextSizeA(size, 100000, 0, text).x) / 2;
     auto *draw = ImGui::GetForegroundDrawList();
     const ImVec2 position(std::floor(x), std::floor(y));
     if (outline) {
@@ -216,6 +228,14 @@ void ui_text(const char *text, float size, float y, unsigned rgb = 0x292823, boo
     }
     draw->AddText(font, size, position, ui_color(rgb), text);
 }
+float ui_text_width(const char *text, float size) {
+    ImFont *font = ui_regular ? ui_regular : ImGui::GetFont();
+    return font->CalcTextSizeA(size, 100000, 0, text).x;
+}
+void ui_text(const char *text, float size, float y, unsigned rgb = 0x292823, bool outline = false) {
+    ui_text_at(text, size, (ImGui::GetIO().DisplaySize.x - ui_text_width(text, size)) / 2, y, rgb, outline);
+}
+void ui_title(const char *text, float y, float scale) { ui_text(text, 30 * scale, y, MenuWhite, true); }
 void ui_image(const Image &image, ImVec2 position, float pixel, SDL_Rect region) {
     auto *draw = ImGui::GetForegroundDrawList();
     for (int y = 0; y < region.h; ++y)
@@ -281,13 +301,14 @@ bool ui_option(const char *id, const char *label, ImVec2 position, ImVec2 size, 
     ImGui::SetCursorScreenPos(position);
     const bool clicked = ImGui::InvisibleButton(id, size);
     const bool hover = ImGui::IsItemHovered();
-    if (selected || hover) ui_cursor(ImVec2(position.x - 28 * scale, position.y + (size.y - 32 * scale) / 2), scale);
+    if (ui_mouse ? hover : selected) ui_cursor(ImVec2(position.x - 28 * scale, position.y + (size.y - 32 * scale) / 2), scale);
     ImGui::GetForegroundDrawList()->AddText(ImVec2(position.x, position.y + (size.y - ImGui::GetFontSize()) / 2), ui_color(rgb), label);
     return clicked;
 }
-bool ui_button(const char *id, const char *label, float y, float width, float scale, bool selected = false) {
+bool ui_button(const char *id, const char *label, float y, float width, float scale, bool selected = false,
+               unsigned rgb = 0x292823) {
     return ui_option(id, label, ImVec2((ImGui::GetIO().DisplaySize.x - width) / 2, y),
-                     ImVec2(width, 40 * scale), scale, selected);
+                     ImVec2(width, 40 * scale), scale, selected, rgb);
 }
 bool ui_pressed(ImGuiKey keyboard, ImGuiKey controller) {
     if (ImGui::IsKeyPressed(keyboard, false) ||
@@ -336,6 +357,69 @@ const char *ui_label(const char *label) {
     for (const auto &pair : labels) if (!SDL_strcasecmp(label, pair[0])) return pair[1];
     return label;
 }
+// Rows the title and pause menus already offer stay out of Settings.
+bool ui_hidden_row(const RecompRuntimeUiRowView &row) {
+    if (!row.item) return false;
+    if (!std::strcmp(row.label, "Resume game") || !std::strcmp(row.item->key, "cyc.quit")) return true;
+    return !std::strcmp(row.item->key, "smb3.home") && frontend.settings_return != smb3::Screen::Pause;
+}
+const char *ui_description(const RecompRuntimeUiRowView &row) {
+    static const char *const sections[][3] = {
+        {"Display", "Window, fullscreen and screen format.", "Ventana, pantalla completa y formato."},
+        {"Graphics", "Scaling, smoothing and vertical sync.", "Escalado, suavizado y sincronización vertical."},
+        {"Audio", "Sound output, volume and synthesis.", "Salida de sonido, volumen y síntesis."},
+        {"System", "Language, save states and rewind.", "Idioma, partidas guardadas y rebobinado."},
+        {"Controls", "Keyboard and controller bindings for each player.", "Teclado y mando de cada jugador."},
+        {"Remastered", "Characters, visual style and shadows.", "Personajes, estilo visual y sombras."},
+        {"Practice", "Test powers, lives and levels.", "Prueba poderes, vidas y niveles."}};
+    if (!row.item) {
+        for (const auto &section : sections)
+            if (!std::strcmp(row.label, section[0])) return smb3_text(section[1], section[2]);
+        return "";
+    }
+    static const char *const spanish[][2] = {
+        {"Choose windowed or fullscreen output.", "Elige ventana o pantalla completa."},
+        {"Resize the window in native-size steps.", "Cambia el tamaño de la ventana. Solo en modo ventana."},
+        {"Native, fixed widescreen, or live window aspect.", "Nativo, panorámico fijo o el formato de la ventana."},
+        {"Snap output to whole native-pixel multiples.", "Ajusta la imagen a múltiplos exactos de píxel."},
+        {"Smooth the final game image.", "Suaviza la imagen final del juego."},
+        {"Enable or mute game audio output.", "Activa o silencia el sonido del juego."},
+        {"Set the in-game mixer volume.", "Ajusta el volumen del juego."},
+        {"Applies immediately. Legacy keeps the current sound.", "Se aplica al instante. Clásica conserva el sonido actual."},
+        {"Choose the language of the menus.", "Elige el idioma de los menús."},
+        {"Return to the title screen without ending the session.", "Vuelve al título sin terminar la partida."},
+        {"Open character selection.", "Abre la selección de personaje."},
+        {"Choose the classic or remastered presentation.", "Elige la presentación clásica o remasterizada."},
+        {"Show scenery and character shadows.", "Muestra las sombras del escenario y de los personajes."},
+        {"Test powers, lives, and levels.", "Prueba poderes, vidas y niveles."},
+        {"Browse twelve save slots with thumbnails (F7).", "Doce ranuras de guardado con miniaturas (F7)."},
+        {"Choose an earlier moment and resume there (F8).", "Elige un momento anterior y sigue desde ahí (F8)."}};
+    const char *text = row.item->description ? row.item->description : "";
+    if (!std::strcmp(row.item->key, "cyc.vsync"))
+        return smb3_text("Wait for the display before each picture to avoid tearing. It never slows the game.",
+                         "Espera a la pantalla antes de cada imagen para evitar cortes. Nunca frena el juego.");
+    if (smb3_ui_spanish())
+        for (const auto &pair : spanish) if (!std::strcmp(text, pair[0])) return pair[1];
+    return text;
+}
+// Centers up to two lines that fit `width`.
+void ui_wrapped(const char *text, float size, float y, float width, unsigned rgb) {
+    std::string lines[2], word;
+    int line = 0;
+    for (const char *c = text;; ++c) {
+        if (*c && *c != ' ') { word += *c; continue; }
+        std::string candidate = lines[line].empty() ? word : lines[line] + " " + word;
+        if (!lines[line].empty() && ui_text_width(candidate.c_str(), size) > width && line == 0) {
+            line = 1;
+            candidate = word;
+        }
+        lines[line] = candidate;
+        word.clear();
+        if (!*c) break;
+    }
+    for (int i = 0; i <= line; ++i) ui_text(lines[i].c_str(), size, y + i * size * 1.4f, rgb);
+}
+
 void ui_settings(float scale) {
     RecompRuntimeUi *model = cyc_ui_runtime();
     if (!recomp_runtime_ui_is_open(model)) { frontend_screen(frontend.settings_return); return; }
@@ -355,10 +439,18 @@ void ui_settings(float scale) {
     if (ui_pressed(ImGuiKey_Enter, ImGuiKey_GamepadFaceDown)) accept();
     if (ui_pressed(ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight)) input(RECOMP_RUNTIME_UI_INPUT_BACK);
     if (frontend.screen != smb3::Screen::Settings || !recomp_runtime_ui_is_open(model)) return;
+    // Step over hidden rows in the direction the cursor moved (down when a section opens on one).
+    const bool upward = ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp);
+    auto hidden = [&](size_t index) {
+        RecompRuntimeUiRowView row{};
+        return recomp_runtime_ui_view_row(model, index, &row) && ui_hidden_row(row);
+    };
+    for (size_t step = 0; step < recomp_runtime_ui_view_row_count(model) &&
+         hidden(recomp_runtime_ui_view_selected_row(model)); ++step)
+        input(upward ? RECOMP_RUNTIME_UI_INPUT_UP : RECOMP_RUNTIME_UI_INPUT_DOWN);
     RecompRuntimeUiRowView first{};
     recomp_runtime_ui_view_row(model, 0, &first);
-    ui_text(first.item ? ui_label(first.item->section) : smb3_text("SETTINGS", "CONFIGURACIÓN"),
-            30 * scale, 76 * scale, MenuWhite, true);
+    ui_title(first.item ? ui_label(first.item->section) : smb3_text("SETTINGS", "CONFIGURACIÓN"), 76 * scale, scale);
     const float width = std::min(ImGui::GetIO().DisplaySize.x - 80 * scale, 980 * scale);
     const float left = (ImGui::GetIO().DisplaySize.x - width) / 2;
     ui_frame(ImVec2(left, 148 * scale), ImVec2(left + width, 580 * scale), scale);
@@ -368,7 +460,7 @@ void ui_settings(float scale) {
     const size_t count = recomp_runtime_ui_view_row_count(model);
     for (size_t i = 0; i < count; ++i) {
         RecompRuntimeUiRowView row{};
-        if (!recomp_runtime_ui_view_row(model, i, &row)) continue;
+        if (!recomp_runtime_ui_view_row(model, i, &row) || ui_hidden_row(row)) continue;
         ImGui::PushID(static_cast<int>(i));
         const ImVec2 position = ImGui::GetCursorScreenPos();
         const bool selected = i == recomp_runtime_ui_view_selected_row(model);
@@ -379,6 +471,7 @@ void ui_settings(float scale) {
         const unsigned color = row.enabled ? (selected ? MenuGold : MenuWhite) : 0x888273;
         if (ui_option("settings row", ui_label(row.label), ImVec2(position.x + 28 * scale, position.y),
             ImVec2(width * .52f, 40 * scale), scale, selected, color) && row.enabled) { select(); accept(); }
+        else if (ui_mouse && ImGui::IsItemHovered() && !selected && row.enabled) select();
         if (selected && (moved || ui_focus)) ImGui::SetScrollHereY(.5f);
         if (row.item && row.item->type != RECOMP_RUNTIME_UI_ACTION) {
             if (ui_option("decrease", "<", ImVec2(left + width * .59f, position.y), ImVec2(32 * scale, 40 * scale), scale, false, color) && row.enabled) {
@@ -394,15 +487,18 @@ void ui_settings(float scale) {
     }
     ImGui::GetForegroundDrawList()->PopClipRect();
     ImGui::EndChild();
-    ui_text(ui_label(smb3_ui_status()), 15 * scale, 584 * scale);
-    const unsigned back_color = frontend.settings_return == smb3::Screen::Pause ? MenuWhite : MenuInk;
+    RecompRuntimeUiRowView selected_row{};
+    if (recomp_runtime_ui_view_row(model, recomp_runtime_ui_view_selected_row(model), &selected_row))
+        ui_wrapped(ui_description(selected_row), 15 * scale, 516 * scale, width - 80 * scale, 0xb6b3a4);
+    ui_text(ui_label(smb3_ui_status()), 15 * scale, 584 * scale, ui_ink());
+    const unsigned back_color = ui_ink();
     const float center = ImGui::GetIO().DisplaySize.x / 2;
     if (ui_option("settings back", smb3_text("Back", "Volver"), ImVec2(center - 48 * scale, 602 * scale),
                   ImVec2(96 * scale, 40 * scale), scale, false, back_color))
         input(RECOMP_RUNTIME_UI_INPUT_BACK);
 }
 void ui_controls(float scale) {
-    ui_text(smb3_text("CONTROLS", "CONTROLES"), 30 * scale, 64 * scale);
+    ui_title(smb3_text("CONTROLS", "CONTROLES"), 52 * scale, scale);
     const float width = std::min(ImGui::GetIO().DisplaySize.x - 80 * scale, 980 * scale);
     const float left = (ImGui::GetIO().DisplaySize.x - width) / 2;
     const bool editing = binding_button >= 0;
@@ -419,32 +515,32 @@ void ui_controls(float scale) {
     for (int player = 0; player < 2; ++player) {
         ImGui::PushID(player);
         const char *label = player ? smb3_text("Player 2", "Jugador 2") : smb3_text("Player 1", "Jugador 1");
-        if (ui_option("player", label, ImVec2(left + 60 * scale + player * 250 * scale, 122 * scale),
+        if (ui_option("player", label, ImVec2(left + 60 * scale + player * 250 * scale, 100 * scale),
                       ImVec2(180 * scale, 40 * scale), scale, controls_row == 0 && controls_player == player,
-                      controls_player == player ? 0x292823 : 0x77756c)) { controls_player = player; controls_row = 0; }
+                      controls_player == player ? ui_ink() : 0x888273)) { controls_player = player; controls_row = 0; }
         ImGui::PopID();
     }
     int source = smb3_ui_source(controls_player, -1);
     const char *const sources[] = {smb3_text("Input: none", "Entrada: ninguna"),
         smb3_text("Keyboard + controller", "Teclado + mando"), smb3_text("Input: controller", "Entrada: mando")};
     if (source >= 0 && source < 3) {
-        const bool clicked = ui_option("input source", sources[source], ImVec2(left + 560 * scale, 122 * scale),
-            ImVec2(390 * scale, 40 * scale), scale, controls_row == 1);
+        const bool clicked = ui_option("input source", sources[source], ImVec2(left + 560 * scale, 100 * scale),
+            ImVec2(390 * scale, 40 * scale), scale, controls_row == 1, ui_ink());
         if (clicked || (controls_row == 1 && (direction || enter))) {
             smb3_ui_source(controls_player, (source + (direction < 0 ? 2 : 1)) % 3);
             controls_row = 1;
         }
     }
-    ui_frame(ImVec2(left, 184 * scale), ImVec2(left + width, 560 * scale), scale);
+    ui_frame(ImVec2(left, 150 * scale), ImVec2(left + width, 526 * scale), scale);
     auto *draw = ImGui::GetForegroundDrawList();
-    draw->AddText(ImVec2(left + 48 * scale, 204 * scale), ui_color(MenuWhite), smb3_text("ACTION", "ACCIÓN"));
-    draw->AddText(ImVec2(left + 360 * scale, 204 * scale), ui_color(MenuWhite), smb3_text("KEYBOARD", "TECLADO"));
-    draw->AddText(ImVec2(left + 650 * scale, 204 * scale), ui_color(MenuWhite), smb3_text("CONTROLLER", "MANDO"));
+    draw->AddText(ImVec2(left + 48 * scale, 170 * scale), ui_color(MenuGold), smb3_text("ACTION", "ACCIÓN"));
+    draw->AddText(ImVec2(left + 360 * scale, 170 * scale), ui_color(MenuGold), smb3_text("KEYBOARD", "TECLADO"));
+    draw->AddText(ImVec2(left + 650 * scale, 170 * scale), ui_color(MenuGold), smb3_text("CONTROLLER", "MANDO"));
     const char *const names[] = {smb3_text("Jump / A", "Saltar / A"), smb3_text("Run / B", "Correr / B"),
         smb3_text("Select", "Selección"), smb3_text("Start", "Inicio"),
         ui_label("Up"), ui_label("Down"), ui_label("Left"), ui_label("Right")};
     for (int button = 0; button < 8; ++button) {
-        const float y = (238 + button * 37) * scale;
+        const float y = (204 + button * 37) * scale;
         ImGui::GetForegroundDrawList()->AddText(ImVec2(left + 48 * scale, y + 7 * scale), ui_color(0xfff9eb), names[button]);
         for (int pad = 0; pad < 2; ++pad) {
             ImGui::PushID(button * 2 + pad);
@@ -458,13 +554,13 @@ void ui_controls(float scale) {
                 binding_status = pad ? smb3_text("Press a button or move an axis on your controller.",
                                                  "Pulsa un botón o mueve un eje del mando.")
                                      : smb3_text("Press the new key.", "Pulsa la nueva tecla.");
-            }
+            } else if (ui_mouse && ImGui::IsItemHovered() && !editing) { controls_row = button + 2; controls_column = pad; }
             ImGui::PopID();
         }
     }
     ui_text(binding_status.empty() ? smb3_text("Choose an input to change its binding.", "Elige un control para cambiarlo.")
-                                   : binding_status.c_str(), 15 * scale, 580 * scale);
-    if (ui_button("controls back", smb3_text("Back", "Volver"), 625 * scale, 96 * scale, scale, controls_row == 10) ||
+                                   : binding_status.c_str(), 15 * scale, 540 * scale, ui_ink());
+    if (ui_button("controls back", smb3_text("Back", "Volver"), 572 * scale, 96 * scale, scale, controls_row == 10, ui_ink()) ||
         (controls_row == 10 && enter) || ui_pressed(ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight)) frontend_back();
 }
 
@@ -509,7 +605,7 @@ void ui_practice(float scale) {
     const char *const values[] = {smb3_text(power[0], power[1]), nullptr, world.c_str(), level.c_str()};
     const bool enabled[] = {available, available && (in_level || practice_on_map()), true, !levels.empty(),
         available && practice_boot.data && !levels.empty(), available && bool(practice_campaign.data), true};
-    ui_text(smb3_text("PRACTICE", "PRUEBAS"), 30 * scale, 100 * scale);
+    ui_title(smb3_text("PRACTICE", "PRUEBAS"), 100 * scale, scale);
     const float width = 836 * scale;
     const float left = (ImGui::GetIO().DisplaySize.x - width) / 2;
     ui_frame(ImVec2(left, 163 * scale), ImVec2(left + width, 550 * scale), scale);
@@ -521,7 +617,7 @@ void ui_practice(float scale) {
                       scale, row == practice_row, color) && enabled[row]) {
             practice_row = row;
             accept(row);
-        }
+        } else if (ui_mouse && ImGui::IsItemHovered()) practice_row = row;
         if (row < 4 && values[row]) {
             const float value_x = left + 402 * scale;
             if (ui_option("previous value", "<", ImVec2(value_x, y), ImVec2(24 * scale, 40 * scale), scale, false, color)) {
@@ -542,7 +638,7 @@ void ui_practice(float scale) {
     const char *hint = !available ? smb3_text("Available in local play.", "Disponible en partida local.") : in_level
         ? smb3_text("Apply the power-up now or when entering a level.", "El poder se aplica al elegirlo o al entrar al nivel.")
         : smb3_text("The power-up applies when you enter the level.", "El poder se aplica al entrar al nivel.");
-    ui_text(*practice_error ? practice_error : hint, 17 * scale, 574 * scale);
+    ui_text(*practice_error ? practice_error : hint, 17 * scale, 574 * scale, ui_ink());
 }
 
 enum class HintIcon { Vertical, Horizontal, Confirm, Back, Start, Clear, Menu, Count };
@@ -608,12 +704,13 @@ void ui_characters(float scale) {
     };
     if (ui_pressed(ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft)) turn(-1);
     if (ui_pressed(ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight)) turn(1);
-    const bool choose_players = character_choice.start_campaign && !frontend.started;
+    const bool choose_players = character_choice.start_campaign && !character_choice.load_save &&
+        (character_choice.new_game || !frontend.started);
     if (choose_players &&
         (ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp) || ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown)))
         character_choice.players = 3 - character_choice.players;
 
-    ui_frame(point(-376, 92), point(376, 635), scale);
+    ui_frame(point(-376, 92), point(376, 612), scale);
     ui_text(smb3_text("SELECT CHARACTER", "ELIGE PERSONAJE"), 30 * scale, point(0, 116).y, 0xffffff, true);
     rect(-341, 160, 682, 2, MenuTrim);
 
@@ -662,7 +759,11 @@ void ui_characters(float scale) {
         rect(x + 3, 480, 8, 6, i == index ? MenuWhite : MenuInk);
     }
 
-    if (choose_players) {
+    if (*character_error) ui_text(character_error, 15 * scale, point(0, 520).y, 0xff9a8c);
+    else if (character_choice.load_save) {
+        const std::string world = std::string(smb3_text("WORLD ", "MUNDO ")) + std::to_string(campaign_save_world + 1);
+        ui_text(world.c_str(), 20 * scale, point(0, 518).y, MenuGold);
+    } else if (choose_players) {
         for (int players = 1; players <= 2; ++players) {
             const bool solo = players == 1;
             const char *label = solo ? smb3_text("1 PLAYER", "1 JUGADOR") : smb3_text("2 PLAYERS", "2 JUGADORES");
@@ -671,7 +772,9 @@ void ui_characters(float scale) {
                 character_choice.players = players;
         }
     }
-    const char *confirm = character_choice.start_campaign ? smb3_text("PLAY", "JUGAR") : smb3_text("CHOOSE", "ELEGIR");
+    const char *confirm = !character_choice.start_campaign ? smb3_text("CHOOSE", "ELEGIR") :
+        character_choice.new_game || !frontend.started && !character_choice.load_save ? smb3_text("PLAY", "JUGAR") :
+        smb3_text("CONTINUE", "CONTINUAR");
     const float action_y = 554;
     const bool accept = ui_option("confirm character", confirm, point(-162, action_y),
         ImVec2(110 * scale, 40 * scale), scale, false, MenuWhite)
@@ -681,19 +784,27 @@ void ui_characters(float scale) {
     const Hint character_hint{HintIcon::Horizontal, smb3_text("CHARACTER", "PERSONAJE")};
     const Hint confirm_hint{HintIcon::Confirm, smb3_text("SELECT", "ELEGIR")};
     const Hint back_hint{HintIcon::Back, smb3_text("BACK", "VOLVER")};
+    const float hints_y = screen.y - 36 * scale;
     if (choose_players)
-        ui_hints(point(0, 601).y, scale, {character_hint, {HintIcon::Vertical, smb3_text("PLAYERS", "JUGADORES")},
-                                        confirm_hint, back_hint});
+        ui_hints(hints_y, scale, {character_hint, {HintIcon::Vertical, smb3_text("PLAYERS", "JUGADORES")},
+                                  confirm_hint, back_hint});
     else
-        ui_hints(point(0, 601).y, scale, {character_hint, confirm_hint, back_hint});
+        ui_hints(hints_y, scale, {character_hint, confirm_hint, back_hint});
     if (back) close_character_choice();
     else if (accept) {
         character = index;
         smb3_ui_save();
-        if (character_choice.start_campaign) {
+        if (!character_choice.start_campaign) close_character_choice();
+        else if (character_choice.load_save) {
+            if (load_campaign_save()) frontend_screen(smb3::Screen::Playing);
+            else character_error = smb3_text("This saved game does not match this version. Start a new game.",
+                                             "Esta partida guardada no es de esta versión. Empieza una nueva.");
+        } else if (character_choice.new_game && frontend.started && !restart_campaign()) {
+            character_error = smb3_text("Could not start a new game.", "No se pudo empezar una partida nueva.");
+        } else {
             frontend.players = character_choice.players;
             frontend.play();
-        } else close_character_choice();
+        }
     }
 }
 
@@ -709,10 +820,36 @@ int ui_menu(const char *const *labels, int count, int &choice, float y, float sc
         ImGui::SetCursorScreenPos(ImVec2(center - 190 * scale, y));
         ImGui::PushID(i);
         if (ImGui::InvisibleButton("menu option", ImVec2(380 * scale, (row_height - 2) * scale))) action = i;
-        if (choice == i || ImGui::IsItemHovered()) ui_cursor(ImVec2(left - 42 * scale, y), scale);
+        if (ui_mouse && ImGui::IsItemHovered()) choice = i;
+        if (choice == i) ui_cursor(ImVec2(left - 42 * scale, y), scale);
         ImGui::PopID();
         ui_text(labels[i], size, y, 0xffffff, true);
         y += row_height * scale;
+    }
+    return action;
+}
+
+// One row under the title logo, so the options stay clear of the demo actors on the floor.
+int ui_menu_row(const char *const *labels, int count, int &choice, float y, float scale) {
+    if (ui_pressed(ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft) || ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp))
+        choice = (choice + count - 1) % count;
+    if (ui_pressed(ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight) || ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown))
+        choice = (choice + 1) % count;
+    int action = ui_confirm(true) ? choice : -1;
+    const float size = (count > 3 ? 22 : 24) * scale, gap = (count > 3 ? 46 : 58) * scale;
+    float width = -gap;
+    for (int i = 0; i < count; ++i) width += ui_text_width(labels[i], size) + gap;
+    float x = (ImGui::GetIO().DisplaySize.x - width) / 2;
+    for (int i = 0; i < count; ++i) {
+        const float label_width = ui_text_width(labels[i], size);
+        ImGui::SetCursorScreenPos(ImVec2(x - 42 * scale, y - 4 * scale));
+        ImGui::PushID(i);
+        if (ImGui::InvisibleButton("menu option", ImVec2(label_width + 42 * scale, size + 8 * scale))) action = i;
+        if (ui_mouse && ImGui::IsItemHovered()) choice = i;
+        ImGui::PopID();
+        if (choice == i) ui_cursor(ImVec2(x - 42 * scale, y), scale);
+        ui_text_at(labels[i], size, x, y, 0xffffff, true);
+        x += label_width + gap;
     }
     return action;
 }
@@ -773,17 +910,26 @@ void ui_render(void *) {
         }
         if (drawing_screen == Screen::Characters) ui_characters(scale);
         else {
-            const char *labels[] = {smb3_text("PLAY", "JUGAR"), smb3_text("SETTINGS", "CONFIGURACIÓN"),
-                                    smb3_text("QUIT", "SALIR")};
+            const bool resume = frontend.started || campaign_save_world >= 0;
+            const char *play[] = {smb3_text("PLAY", "JUGAR"), smb3_text("SETTINGS", "CONFIGURACIÓN"),
+                                  smb3_text("QUIT", "SALIR")};
+            const char *saved[] = {smb3_text("CONTINUE", "CONTINUAR"), smb3_text("NEW GAME", "NUEVA PARTIDA"),
+                                   smb3_text("SETTINGS", "CONFIGURACIÓN"), smb3_text("QUIT", "SALIR")};
             const float title_scale = std::min(scale, picture.h / 720.f);
-            const int action = ui_menu(labels, 3, main_choice, picture.y + picture.h * .628f, title_scale, 35);
+            const int count = resume ? 4 : 3;
+            main_choice = std::min(main_choice, count - 1);
+            int action = ui_menu_row(resume ? saved : play, count, main_choice, picture.y + picture.h * .615f, title_scale);
+            if (!resume && action >= 1) ++action; // Same actions with or without the New game entry.
             if (action == 0) frontend_characters(Screen::Main, true);
-            if (action == 1) frontend_settings(Screen::Main);
-            if (action == 2) { SDL_Event quit{}; quit.type = SDL_QUIT; SDL_PushEvent(&quit); }
-            ui_hints(picture.y + picture.h - 38 * title_scale, title_scale, {move_hint, select_hint});
+            if (action == 1) frontend_characters(Screen::Main, true, true);
+            if (action == 2) frontend_settings(Screen::Main);
+            if (action == 3) { SDL_Event quit{}; quit.type = SDL_QUIT; SDL_PushEvent(&quit); }
+            ui_hints(picture.y + picture.h - 38 * title_scale, title_scale,
+                     {{HintIcon::Horizontal, smb3_text("MOVE", "MOVER")}, select_hint});
         }
     } else if (drawing_screen == Screen::Pause) {
         const float x = screen.x / 2, y = screen.y / 2;
+        ui_dim(110);
         ui_frame(ImVec2(x - 216 * scale, y - 119 * scale), ImVec2(x + 216 * scale, y + 120 * scale), scale);
         ui_text(smb3_text("PAUSED", "PAUSA"), 27 * scale, y - 99 * scale, MenuGold);
         const char *labels[] = {smb3_text("RESUME", "REANUDAR"), smb3_text("SETTINGS", "CONFIGURACIÓN"),
@@ -791,13 +937,14 @@ void ui_render(void *) {
         const int action = ui_menu(labels, 3, pause_choice, y - 55 * scale, scale);
         if (action == 0 || ui_pressed(ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight)) frontend_resume();
         if (action == 1) frontend_settings(Screen::Pause);
-        if (action == 2) {
+        if (action == 2) { // The session stays suspended; Continue on the title resumes it.
             release_pause();
             frontend_screen(Screen::Main);
         }
         ui_hints(y + 79 * scale, scale * .85f, {move_hint, select_hint, {HintIcon::Back, smb3_text("RESUME", "REANUDAR")}});
     } else {
         if (frontend.settings_return != Screen::Pause) ui_theater(scale);
+        else ui_dim(170);
         if (drawing_screen == Screen::Settings) ui_settings(scale);
         else if (drawing_screen == Screen::Controls) {
             ui_controls(scale);

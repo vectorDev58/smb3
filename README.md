@@ -31,6 +31,8 @@ cd smb3-pc-linux-x86_64
 3. Choose **Play**. Use left and right to pick a character and up and down to select **1 Player** or **2 Players**. Confirm with Enter or A.
 4. Move around the world map and enter a stage with Z or A.
 
+The original game has no save, so the remaster saves your campaign each time you reach the world map. Choose **Continue** on the title screen to resume from there after closing the game, or **New game** to start over. **Title screen** in the pause menu keeps the current session; **Continue** returns to it. The save lives in `saves/campaign.cycstate` beside the executable.
+
 The ROM is the only game file you need to supply. The default remastered presentation includes themed backgrounds, layered scenery, animated blocks and coins, translucent water, and input hints that switch between keyboard and Xbox-style controllers. Resource packs add Toad, Toadette, Luigi's own design, and more artwork.
 
 If the file picker is unavailable, pass the ROM path directly, for example `./smb3 "/path/to/game.nes"` on Linux or `.\smb3.exe "C:\Games\game.nes"` in PowerShell. The picker validates the ROM and remembers its path for the next launch. Keep `config.ini`, `rom.cfg`, `saves/`, and `resource_packs/` from your old folder when moving to a new release. Save states are tied to a compatible ROM and engine build.
@@ -114,7 +116,7 @@ py -3 tools/smb3.py build
 
 ### Resource packs in a source build
 
-Place the resource packs in `resource_packs/` beside the built executable, `build/` on Linux or `build/Release/` on Windows. The source build reads them the same way as a release. Art prepared by earlier versions of the importers in `private/` is still copied to `assets/remaster/`, which takes priority over the packs.
+Place the resource packs in `resource_packs/` beside the built executable, `build/` on Linux or `build/Release/` on Windows. The source build reads them the same way as a release. Copy them again if you delete the build folder.
 
 ## Contribute
 

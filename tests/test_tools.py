@@ -102,7 +102,7 @@ class RomImportTests(unittest.TestCase):
         binary.parent.mkdir()
         binary.touch()
         with patch.object(smb3, "ROOT", self.root), patch.object(smb3, "ensure_config"), \
-                patch.object(smb3, "stage_graphics"), patch.object(smb3.subprocess, "call", return_value=0) as launch, \
+                patch.object(smb3.subprocess, "call", return_value=0) as launch, \
                 patch.dict(smb3.os.environ, {"SMB3_EXISTING_VARIABLE": "preserved"}):
             self.assertEqual(smb3.play(), 0)
             self.assertEqual(launch.call_args.args[0], [str(binary), str(rom)])

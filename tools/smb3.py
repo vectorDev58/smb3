@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 import zipfile
-from graphics import stage_graphics
 
 ROOT = Path(__file__).resolve().parents[1]
 ROM_SIZE = 393232
@@ -102,7 +101,6 @@ def build():
     run(command)
     run(["cmake", "--build", ROOT / "build", "--config", "Release", "--parallel", "4"])
     ensure_config()
-    stage_graphics(ROOT, executable().parent)
     print(f"Listo: {executable()}")
 
 
@@ -129,7 +127,6 @@ def play():
             with preparing(spanish):
                 build()
         ensure_config()
-        stage_graphics(ROOT, executable().parent)
         environment = dict(os.environ, NESRECOMP_NO_LAUNCHER="1")
         return subprocess.call([str(executable()), str(rom)], cwd=executable().parent, env=environment)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:

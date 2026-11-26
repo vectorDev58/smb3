@@ -163,3 +163,27 @@ El ejecutable lee `resource_packs/` junto a él, como Super Mario Bros. Remaster
 - **Sin packs**: Toad y Toadette no aparecen, `--character toad` termina con un mensaje que remite a README.md y el juego crea la carpeta vacía `resource_packs/`.
 
 No se comprobó una partida completa con los packs, ni el ejecutable de Windows con rutas no ASCII dentro de `resource_packs/`.
+
+## Poses de personajes y menús — 26 de noviembre de 2026
+
+La hoja 143355 no tiene la misma distribución para los cuatro personajes. Luigi tiene un grupo "SMA4 Jump" antes de "Carry Item" en los trajes Pequeño, Super, Fuego y Martillo. Toadette tiene una celda "Turn" antes de cada patada y un grupo "Carried" en la fila de la Rana. La tabla de poses ahora aplica esos desplazamientos por personaje.
+
+- **Detección**: se midieron las celdas de cada fila por sus bordes y se comparó, para cada cuadro de la ROM entre `$00` y `$50`, la secuencia de celdas con la de Mario. También se compararon las siluetas de Toadette con Toad y de Luigi con Mario. Así aparecieron la patada de Toadette en los siete trajes, las poses de cargar y patear de Luigi pequeño, Super, Fuego y Martillo, la Toadette pequeña cargando, Toadette Rana en el zapato de Kuribo y el derrape de la Rana, recortado 4 píxeles a la derecha en los tres personajes.
+- **En juego**: con `Player_Kick` ($0557) y `Player_IsHolding` ($06A4) mantenidos desde los estados de cada traje, se revisaron capturas de la patada en los siete trajes y de las poses de cargar en Pequeño, Super, Fuego y Martillo para Luigi, Toad y Toadette.
+- **HUD**: el panel de estado ya no copia la columna izquierda de 8 píxeles que la NES deja del color del cielo en los niveles.
+
+Menús revisados con el servidor TCP del ejecutable (teclas, capturas de ventana) a 768 × 720 y 1920 × 1080, en inglés y español:
+
+- Un solo cursor: el ratón mueve la selección solo cuando se desplaza; teclado y mando la recuperan al pulsar.
+- La pausa y las pantallas abiertas desde ella oscurecen el juego y usan texto claro.
+- El menú del título ocupa una fila bajo el logo y ya no tapa a los personajes de la demostración.
+- Las ayudas del selector de personaje están al pie de la pantalla; Controles termina antes del suelo del escenario; los títulos de Configuración, Controles y Pruebas comparten estilo.
+
+`verify.py`, `verify_widescreen.py`, `verify_graphics.py`, las pruebas Python y `ctest` pasan. No se jugó la campaña completa; los zapatos de Kuribo y los cambios con ratón se comprobaron en atlas y capturas, no en una partida.
+
+## HUD, partida guardada y Configuración — 26 de noviembre de 2026
+
+- **HUD**: el negro de la barra de estado usa el mismo negro que la banda, sin la franja gris. La insignia del jugador 1 muestra L (Luigi, verde) o T (Toad celeste, Toadette rosa) solo cuando la barra dibuja exactamente la M de la ROM; en el mapa está una fila más arriba. El jugador 2 conserva la L original. Revisado en niveles y en el mapa.
+- **Partida guardada**: al llegar al mapa (45 cuadros estables) se escribe `saves/campaign.cycstate` y `campaign.ini` (mundo y jugadores), salvo con `--no-save`, durante Pruebas o antes de empezar. Probado en una instalación aparte: partida nueva hasta el mapa, cerrar, reabrir, CONTINUAR con "MUNDO 1" en el selector y vuelta al mismo mapa. "Menú principal" en la pausa deja la sesión suspendida y CONTINUAR la retoma; se comprobó con el temporizador del nivel.
+- **Configuración**: se ocultan "Continuar" y "Salir" de Sistema (ya están en la pausa y el título) y "Menú principal" desde el título. Cada opción y cada sección muestran una descripción, en inglés o español.
+- **Sprites del pack**: se probó sustituir enemigos e ítems por las hojas de SMB3-mastered comparando siluetas con la CHR de la ROM. Las coincidencias eran correctas (Goomba, Piraña, Hermano Martillo, ítems), pero el resultado en juego difería en pocos píxeles de sombreado y podía mezclar mitades de un mismo objeto. No se incluyó.

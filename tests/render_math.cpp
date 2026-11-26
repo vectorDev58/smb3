@@ -55,6 +55,10 @@ static void check_resource_packs() {
     assert(campaign_color(0xf04060, 3) == 0xff50c8 && campaign_color(0xf04060, 2) == 0xf04060);
     assert(campaign_poses(0)[0x43].row == 182 && campaign_poses(0)[0x43].padding == 4);
     assert(campaign_poses(2)[0x1b].x == 104 && campaign_poses(2)[93].x == 236 && campaign_poses(6)[0x18].row == 2007);
+    // Per-character layouts: Luigi's carry poses, Toadette's kicks and frog shoe, and the frog skid cell.
+    assert(campaign_poses(1, 1)[0x2b].x == 821 && campaign_poses(0, 1)[0x42].x == 867 && campaign_poses(1, 2)[0x2d].x == 825);
+    assert(campaign_poses(3, 3)[0x2d].x == 895 && campaign_poses(0, 3)[0x2e].x == 687 && campaign_poses(4, 3)[0x18].x == 178);
+    assert(campaign_poses(4, 2)[0x30].x == 244 && campaign_poses(4, 2)[0x18].x == 1);
 
     assert(reference_art(filled(ReferenceSheetWidth, ReferenceSheetHeight, 0xff2f3368)).empty());
 

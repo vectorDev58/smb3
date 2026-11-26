@@ -51,7 +51,8 @@ namespace {
 using smb3::Image;
 #ifdef CYC_WITH_RECOMP_UI
 void frontend_screen(smb3::Screen screen);
-void frontend_characters(smb3::Screen back, bool start_campaign);
+void frontend_characters(smb3::Screen back, bool start_campaign, bool new_game = false);
+void read_campaign_save_info();
 void release_pause();
 #endif
 constexpr int NativeWidth = 256, Height = 240, PlayfieldHeight = 192;
@@ -73,7 +74,8 @@ Image paused_picture, title_picture;
 int title_native_origin = 0;
 std::array<uint8_t, 2> paused_buttons{};
 #endif
-std::filesystem::path art_directory;
+bool art_loaded = false;
+std::filesystem::path game_directory; // Beside the executable: resource_packs/, saves/.
 std::vector<std::filesystem::path> pack_sprites; // resource_packs/*/Sprites, as in SMB1 Remastered packs.
 std::unordered_map<std::string, Image> images;
 std::unordered_map<uint32_t, unsigned> frame_colors;
@@ -312,7 +314,7 @@ Image load_webp(const std::filesystem::path &path, int width, int height) {
 }
 
 Image load_art(const std::string &name) {
-    Image result = load_image(art_directory / name);
+    Image result;
     for (size_t i = 0; result.empty() && i < pack_sprites.size(); ++i) result = load_image(pack_sprites[i] / name);
     return result;
 }
@@ -397,13 +399,15 @@ void load_resource_packs(const std::filesystem::path &root) {
 }
 
 void load_local_art() {
-    if (!art_directory.empty()) return;
+    if (art_loaded) return;
+    art_loaded = true;
+    images.clear(); // Drop lookups made before the packs were found.
     std::filesystem::path base = std::filesystem::current_path();
 #ifdef CYC_WITH_SDL
     char *executable_path = SDL_GetBasePath();
     if (executable_path) { base = std::filesystem::u8path(executable_path); SDL_free(executable_path); }
 #endif
-    art_directory = base / "assets/remaster";
+    game_directory = base;
     load_resource_packs(base / "resource_packs");
     character_count = 4;
     // Form 3 reads Campaign.png, which Toad and Toadette need for every suit beyond Fire.
@@ -902,26 +906,64 @@ bool inventory_visible(const uint8_t *ram) {
     return ram[0x5f2] || ram[0x3e6]; // Inventory_Open or InvFlip_Counter
 }
 
-void draw_hud(uint32_t *out, int width, int origin, const uint32_t *native, bool inventory) {
+constexpr uint32_t HudBand = 0xff111311;
+
+// The status bar's NES black takes the band's black, so the panels sit on one dark strip.
+uint32_t hud_color(uint32_t native_pixel) {
+    const uint32_t pixel = recolor(native_pixel);
+    return pixel == smb3::color(0x0f) ? HudBand : pixel;
+}
+
+// Player 1's badge shows the chosen character's initial in the 6 x 5 box where the ROM draws <M>.
+// The letter is only replaced while the bar shows that exact M, so the flip animation is untouched.
+void draw_badge(uint32_t *out, int width, int left, const uint32_t *native, const uint8_t *ram) {
+    if (!character || (ram[0x726] & 1)) return; // Player 2 keeps the ROM's <L>.
+    static constexpr const char *const mario[] = {"o...oo", "oo.ooo", "oooooo", "o.o.oo", "o...oo"};
+    auto shows_mario = [&](int top) {
+        for (int y = 0; y < 5; ++y)
+            for (int x = 0; x < 6; ++x) {
+                const uint32_t pixel = recolor(native[(top + y) * NativeWidth + 21 + x]);
+                const bool white = pixel == smb3::color(0x30) || pixel == smb3::color(0x20);
+                if (white != (mario[y][x] == 'o')) return false;
+            }
+        return true;
+    };
+    // The map's status bar sits one row higher than the levels'.
+    const int top = shows_mario(212) ? 212 : shows_mario(211) ? 211 : 0;
+    if (!top) return;
+    static constexpr const char *const letters[][5] = {
+        {"oo....", "oo....", "oo....", "oo....", "oooooo"},
+        {"oooooo", "..oo..", "..oo..", "..oo..", "..oo.."}};
+    static constexpr uint32_t colors[] = {0, 0xffb4e987, 0xffb6dcfc, 0xfffad5ee};
+    const auto &letter = letters[character == 1 ? 0 : 1];
+    for (int y = 0; y < 5; ++y)
+        for (int x = 0; x < 6; ++x)
+            out[(top + y) * width + left + 21 + x] = letter[y][x] == 'o' ? colors[character] : HudBand;
+}
+
+void draw_hud(uint32_t *out, int width, int origin, const uint32_t *native, bool inventory, const uint8_t *ram) {
     if (inventory) {
         // The flip and the chest reward both travel across a single continuous panel.
         for (int y = PlayfieldHeight; y < Height; ++y) {
             const uint32_t *source = native + y * NativeWidth;
             uint32_t *row = out + y * width;
-            std::fill_n(row, origin, recolor(source[0]));
-            for (int x = 0; x < NativeWidth; ++x) row[origin + x] = recolor(source[x]);
-            std::fill_n(row + origin + NativeWidth, width - origin - NativeWidth, recolor(source[NativeWidth - 1]));
+            std::fill_n(row, origin, hud_color(source[0]));
+            for (int x = 0; x < NativeWidth; ++x) row[origin + x] = hud_color(source[x]);
+            std::fill_n(row + origin + NativeWidth, width - origin - NativeWidth, hud_color(source[NativeWidth - 1]));
         }
+        draw_badge(out, width, origin, native, ram);
         return;
     }
     const int margin = width >= 320 ? 6 : 0;
-    std::fill_n(out + PlayfieldHeight * width, (Height - PlayfieldHeight) * width, 0xff111311);
+    std::fill_n(out + PlayfieldHeight * width, (Height - PlayfieldHeight) * width, HudBand);
     for (int y = 196; y < 228; ++y) {
         const uint32_t *source = native + y * NativeWidth;
         uint32_t *row = out + y * width;
-        for (int x = 0; x < 168; ++x) row[margin + x] = recolor(source[x]);
-        for (int x = 0; x < 88; ++x) row[width - margin - 88 + x] = recolor(source[168 + x]);
+        // Levels blank the NES's left 8 pixels to the sky colour; the panel starts after them.
+        for (int x = 8; x < 168; ++x) row[margin + x - 8] = hud_color(source[x]);
+        for (int x = 0; x < 88; ++x) row[width - margin - 88 + x] = hud_color(source[168 + x]);
     }
+    draw_badge(out, width, margin - 8, native, ram);
 }
 
 void draw_map(uint32_t *out, int width, int origin, const uint32_t *native, const uint8_t *ram) {
@@ -1022,7 +1064,7 @@ void draw_map(uint32_t *out, int width, int origin, const uint32_t *native, cons
     }
     if (shadows) smb3::shadow(out, width, PlayfieldHeight, sprites);
     for (size_t i = 0; i < sprites.size(); ++i) if (sprites[i]) out[i] = sprites[i];
-    draw_hud(out, width, origin, native, inventory_visible(ram));
+    draw_hud(out, width, origin, native, inventory_visible(ram), ram);
 }
 
 struct TitleSpritePatch {
@@ -1374,7 +1416,7 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
     if (level) draw_sprites(out, width, origin, ram, opaque);
     for (size_t i = 0; i < water.size(); ++i)
         if (water[i]) out[i] = smb3::blend(out[i], water[i]);
-    if (level) draw_hud(out, width, native_x0, native, toad_house && inventory_visible(ram));
+    if (level) draw_hud(out, width, native_x0, native, toad_house && inventory_visible(ram), ram);
     return 1;
 }
 
@@ -1504,8 +1546,11 @@ void power_on(void *) {
             }
     }
     load_local_art();
+#ifdef CYC_WITH_RECOMP_UI
+    read_campaign_save_info();
+#endif
     if (character >= character_count) character = 0;
-    const bool local_art = std::filesystem::exists(art_directory / "manifest.json") || !pack_sprites.empty();
+    const bool local_art = !pack_sprites.empty();
     std::fprintf(stderr, "SMB3 Remastered: %s; personaje %s; arte local %s\n",
                  enhanced ? "activado" : "clasico", Characters[character],
                  local_art ? "disponible" : "no instalado (ROM)");
@@ -1686,6 +1731,78 @@ void preview(int index, ImVec2 position, float scale, int opacity = 255, bool pe
         }
 }
 
+// SMB3 has no save. Like SMB1 Remastered's campaign file, arriving on the world map writes a
+// resume point beside the executable; the title then offers Continue and New game.
+int campaign_save_world = -1; // 0-based world of the saved campaign, or -1 when there is none.
+int campaign_save_players = 1, map_frames = 0;
+
+std::filesystem::path campaign_save_path() { return game_directory / "saves" / "campaign.cycstate"; }
+
+void read_campaign_save_info() {
+    campaign_save_world = -1;
+    std::ifstream info(campaign_save_path().replace_extension(".ini"));
+    std::string line;
+    int world = -1, players = 1;
+    while (std::getline(info, line)) {
+        if (!line.compare(0, 6, "World=")) integer(line.c_str() + 6, 0, 7, world);
+        if (!line.compare(0, 8, "Players=")) integer(line.c_str() + 8, 1, 2, players);
+    }
+    std::error_code error;
+    if (world >= 0 && std::filesystem::is_regular_file(campaign_save_path(), error)) {
+        campaign_save_world = world;
+        campaign_save_players = players;
+    }
+}
+
+bool write_file(const std::filesystem::path &path, const void *data, size_t size) {
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    auto temporary = path;
+    temporary += ".tmp";
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        if (!file.write(static_cast<const char *>(data), static_cast<std::streamsize>(size))) return false;
+    }
+    std::filesystem::rename(temporary, path, error);
+    return !error;
+}
+
+void autosave_campaign() {
+    const bool on_map = frontend.started && practice_on_map() && !practice_campaign.data && !practice_target;
+    if (!on_map || !cyc_host_saves_enabled() || game_directory.empty()) { map_frames = 0; return; }
+    if (++map_frames != 45) return; // Once per visit, after the map has settled.
+    PracticeState state;
+    if (!state.capture()) return;
+    const int world = cyc_cpu_ram()[0x727] & 7; // World_Num
+    const std::string info = "World=" + std::to_string(world) + "\nPlayers=" + std::to_string(frontend.players) + "\n";
+    if (write_file(campaign_save_path(), state.data.get(), state.size) &&
+        write_file(campaign_save_path().replace_extension(".ini"), info.data(), info.size())) {
+        campaign_save_world = world;
+        campaign_save_players = frontend.players;
+    } else std::fprintf(stderr, "SMB3 Remastered: no se pudo guardar la campaña en %s\n", campaign_save_path().string().c_str());
+}
+
+bool load_campaign_save() {
+    const auto data = read_file(campaign_save_path(), 64 * 1024 * 1024);
+    char error[256]{};
+    if (data.empty() || !smb3_ui_restore(data.data(), data.size(), error, sizeof error)) {
+        std::fprintf(stderr, "SMB3 Remastered: %s\n", *error ? error : "partida guardada no disponible");
+        return false;
+    }
+    practice_campaign.data.reset();
+    cyc_state_ui_reset();
+    frontend.players = campaign_save_players;
+    return true;
+}
+
+bool restart_campaign() {
+    practice_campaign.data.reset();
+    if (!practice_boot.restore()) return false;
+    cyc_state_ui_reset();
+    frontend.started = false;
+    return true;
+}
+
 #include "frontend.h"
 
 #endif
@@ -1718,6 +1835,7 @@ void frontend_frame_end(void *) {
 #ifdef CYC_WITH_RECOMP_UI
     // The wait can last longer than the ROM's eight-bit tick. Keep it negative until resume.
     if (paused_wait && cyc_cpu_ram()[VBlankTick] == 0x80) cyc_mod_poke(VBlankTick, 0xff);
+    autosave_campaign(); // At a frame boundary, where a save state is complete.
 #endif
     if (frontend.active && frontend.screen == smb3::Screen::Intro) {
         ++frontend.intro_tick;
