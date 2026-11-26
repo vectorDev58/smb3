@@ -676,10 +676,15 @@ struct MetatileFrame {
     std::array<uint32_t, 16 * 16> pixels, water;
 };
 
-unsigned terrain_texel(unsigned tile, int tileset, const uint8_t *chr_banks, int wx, int wy) {
+// The 8 x 8 pattern the room data places at this point, as the level loader writes it to the nametable.
+unsigned terrain_pattern(unsigned tile, int tileset, int wx, int wy) {
     static constexpr int banks[] = {11,15,21,16,17,19,18,18,18,20,23,19,17,19,13};
     const unsigned quadrant = ((wx & 15) / 8) * 2 + ((wy & 15) / 8);
-    const unsigned pattern = rom[banks[tileset] * 8192 + quadrant * 256 + tile];
+    return rom[banks[tileset] * 8192 + quadrant * 256 + tile];
+}
+
+unsigned terrain_texel(unsigned tile, int tileset, const uint8_t *chr_banks, int wx, int wy) {
+    const unsigned pattern = terrain_pattern(tile, tileset, wx, wy);
     const unsigned bank = chr_banks[pattern >= 128] & 0x7e;
     const uint8_t *chr = rom.data() + ChrStart + bank * 1024 + (pattern & 127) * 16;
     return smb3::tile_pixel(chr, wx & 7, wy & 7);
@@ -966,7 +971,46 @@ void draw_hud(uint32_t *out, int width, int origin, const uint32_t *native, bool
     draw_badge(out, width, margin - 8, native, ram);
 }
 
+// The world intro and game over boxes spell MARIO in background tiles. Like the HUD badge, player 1's
+// character takes its place in the picture only, so the simulation stays the same for every character.
+void draw_player_name(const uint8_t *ram) {
+    if (!character || (ram[0x726] & 1)) return; // Player 2 keeps the ROM's LUIGI.
+    static constexpr uint8_t mario[] = {0xba, 0xbc, 0xe9, 0xfc, 0xf0};
+    static constexpr uint8_t names[][8] = { // The map font; $FE clears the rest of the old name.
+        {}, {0xec, 0xda, 0xfc, 0xeb, 0xfc, 0xfe, 0xfe, 0xfe}, {0xea, 0xf0, 0xbc, 0xee, 0xfe, 0xfe, 0xfe, 0xfe},
+        {0xea, 0xf0, 0xbc, 0xee, 0xe8, 0xea, 0xea, 0xe8}};
+    std::array<int, 4 * 30> starts;
+    starts.fill(-2); // -2: row not searched yet, -1: no name in it.
+    for (int y = 0; y < PlayfieldHeight; ++y) {
+        const int raster_y = cyc_render_line_scroll_y(y), row = raster_y % Height / 8, fine_y = raster_y % Height & 7;
+        for (int x = 0; x < NativeWidth; ++x) {
+            const int raster_x = (cyc_render_line_scroll_x(y) + x) & 511;
+            const uint16_t table = 0x2000 | (raster_y >= Height ? 0x800 : 0) | (raster_x & 256 ? 0x400 : 0);
+            int &start = starts[((table >> 10) & 3) * 30 + row];
+            if (start == -2) {
+                start = -1;
+                for (int column = 0; column < 32 && start < 0; ++column) {
+                    bool match = true;
+                    for (int i = 0; i < 5; ++i)
+                        match &= cyc_render_nametable(table + row * 32 + ((column + i) & 31)) == mario[i];
+                    if (match) start = column;
+                }
+            }
+            const int column = (raster_x & 255) / 8, letter = (column - start) & 31;
+            if (start < 0 || letter >= 8) continue;
+            const uint16_t pattern = cyc_render_line_bg_table(y) + names[character][letter] * 16 + fine_y;
+            const unsigned shift = 7 - (raster_x & 7);
+            // chr_byte reads the playfield's banks; the status bar switches them later in the frame.
+            const unsigned value = ((chr_byte(pattern) >> shift) & 1) | (((chr_byte(pattern + 8) >> shift) & 1) << 1);
+            const uint8_t attribute = cyc_render_nametable(table + 0x3c0 + row / 4 * 8 + column / 4);
+            const unsigned palette = (attribute >> ((row & 2 ? 4 : 0) | (column & 2 ? 2 : 0))) & 3;
+            background[y * NativeWidth + x] = cyc_render_color_value(cyc_render_palette(value ? palette * 4 + value : 0));
+        }
+    }
+}
+
 void draw_map(uint32_t *out, int width, int origin, const uint32_t *native, const uint8_t *ram) {
+    draw_player_name(ram);
     const unsigned map_power = ram[0x3f3];
     const bool cloud_power = map_power == 7;
     std::unordered_map<uint32_t, int> counts;
@@ -999,9 +1043,12 @@ void draw_map(uint32_t *out, int width, int origin, const uint32_t *native, cons
     const uint8_t *native_opaque = cyc_frame_bg_opaque();
     const int current = ram[0x726] & 1;
     const int expected = ram[0x77 + current] * 256 + ram[0x79 + current] - camera_x(ram);
-    const uint8_t *player = data + 35 * 4;
-    const int player_x = smb3::unwrap(player[3], expected);
-    const int pose = smb3::map_pose(map_power, player[1], player[2], ram[0x8c + current] != 0, ram[0x15] & 8);
+    // The GAME OVER box shows the small player facing front: tile $61, mirrored, in slots 33 and 34.
+    const bool game_over = data[33 * 4 + 1] == 0x61 && data[34 * 4 + 1] == 0x61 && data[35 * 4] >= PlayfieldHeight;
+    const uint8_t *player = data + (game_over ? 33 : 35) * 4;
+    const int player_x = game_over ? player[3] : smb3::unwrap(player[3], expected);
+    const int pose = game_over ? 2 :
+        smb3::map_pose(map_power, player[1], player[2], ram[0x8c + current] != 0, ram[0x15] & 8);
     const unsigned form = pose >= 2 ? 0 : map_power == 8 ? 3 : map_power <= 6 ? map_power : 0;
     const Image *map_sheet = character && pose >= 0 && player[0] < PlayfieldHeight ?
         &player_sheet(character, "Map.png") : nullptr;
@@ -1298,10 +1345,12 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
     terrain.assign(width * rows, 0);
     water.clear();
     const uint8_t *native_opaque = cyc_frame_bg_opaque();
+    static std::vector<uint8_t> written;
+    written.assign(NativeWidth * PlayfieldHeight, 0);
     if (rebuild && !bonus_scene) {
         uint8_t chr_banks[] = {ram[0x719], ram[0x71a]};
-        // The result font takes over the second bank. Keep the room's terrain graphics.
-        if (result_text && layout < 23)
+        // The result and dialogue font takes over the second bank. Keep the room's terrain graphics.
+        if (ram[0x71a] == ResultChrBank && layout < 23)
             chr_banks[1] = rom[0x3d779 + layout];
         const TileFrames frames{image("Blocks/QuestionBlock.png"), image("Tilesets/Terrain/BrickBlock.png"),
             image("Items/StaticCoin.png"), (tick / 12 % 4) * 16,
@@ -1385,6 +1434,23 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
                 x += count;
             }
         }
+        // The king's dialogue, the princess's letter and other scenes write text straight to the
+        // nametable. Keep the PPU's picture wherever it no longer matches the room data. The NES
+        // edge columns are skipped: they hold the column being streamed in.
+        for (int y = 0; y < water_line; ++y) {
+            const int raster_y = cyc_render_line_scroll_y(y), scroll = cyc_render_line_scroll_x(y);
+            if (raster_y >= LevelRows * 16 || ((scroll - camera) & 255)) continue; // Rows a raster split moved.
+            const uint16_t row = (raster_y >= Height ? 0x2800 : 0x2000) + raster_y % Height / 8 * 32;
+            bool changed = false;
+            for (int x = 16; x < NativeWidth - 16; ++x) {
+                const int wx = camera + x, ppu_x = (scroll + x) & 511;
+                if (wx >= end - 16) break;
+                if (x == 16 || !(wx & 7))
+                    changed = cyc_render_nametable((ppu_x & 256 ? row | 0x400 : row) + (ppu_x & 255) / 8) !=
+                        terrain_pattern(cart[level_tile_address(wx, raster_y)], tileset, wx, raster_y);
+                if (changed) written[y * NativeWidth + x] = 1;
+            }
+        }
     }
     const uint32_t native_black = cyc_render_color_value(0x0f);
     const bool overlays_only = rebuild && !bonus_scene;
@@ -1394,14 +1460,17 @@ int compose_game(uint32_t *out, int width, int height, int native_x0, const uint
         const bool result_row = result_text && wy >= Height + 4 * 8 && wy < Height + 10 * 8;
         // Toad types into $28C8. Keep the live 17-by-8-tile box over the remastered room.
         const bool dialogue_row = overlays_only && toad_house && wy >= Height + 6 * 8 && wy < Height + 14 * 8;
-        if (overlays_only && !dialogue_row && !result_row) continue;
-        const int left = dialogue_row ? 8 * 8 : 0, right = dialogue_row ? 25 * 8 : NativeWidth;
-        for (int x = left; x < right; ++x) {
-            int source = y * NativeWidth + x;
-            if (overlays_only && !dialogue_row && background[source] == native_black) continue;
+        const bool written_row = overlays_only && !result_row && y < PlayfieldHeight &&
+            std::any_of(written.begin() + y * NativeWidth, written.begin() + (y + 1) * NativeWidth, [](uint8_t w) { return w; });
+        if (overlays_only && !dialogue_row && !result_row && !written_row) continue;
+        for (int x = 0; x < NativeWidth; ++x) {
+            const int source = y * NativeWidth + x;
+            // Text boxes cover the room, backdrop pixels included.
+            const bool box = (dialogue_row && x >= 8 * 8 && x < 25 * 8) || (written_row && written[source]);
+            if (overlays_only && !box && !(result_row && !dialogue_row && background[source] != native_black)) continue;
             const int dest = y * width + origin + x;
-            if (dialogue_row || !level || native_opaque[source]) {
-                opaque[dest] = dialogue_row ? native_opaque[source] : 1;
+            if (box || !level || native_opaque[source]) {
+                opaque[dest] = box ? native_opaque[source] : 1;
                 terrain[dest] = recolor(level ? background[source] : native[source]);
                 if (bonus_scene && y < PlayfieldHeight && background[source] == native_black)
                     terrain[dest] = GoalBlack;
