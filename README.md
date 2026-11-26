@@ -24,6 +24,12 @@ cd smb3-pc-linux-x86_64
 ./smb3
 ```
 
+### Co-op: two players at once
+
+SMB3's own 2-player mode takes turns, and only the battle mini-game is simultaneous. Choose **Co-op** in character selection to play every level together: player 1 is the chosen character and player 2 is Luigi, or Mario when player 1 is Luigi. Player 2 uses the second controller, which you can remap in **Settings → Controls**.
+
+Both players use the game's own rules for running, jumping, power-ups, blocks, enemies, shells, and fireballs. The camera follows the leading player, and the other player stays on that screen. If the leader takes a pipe or a door, the partner follows. If the partner takes it, the partner becomes the leader. A player who falls returns beside the other after about two seconds, and the level only restarts when both are down. The world map, items, lives, and score are shared.
+
 ### First launch
 
 1. Select your uncompressed **Super Mario Bros. 3 (USA), PRG0** `.nes` file when prompted. If your dump is in a ZIP, extract the `.nes` first.

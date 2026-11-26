@@ -12,6 +12,8 @@
 #include "cyc_run.h"
 #include "cyc_video.h"
 #include "actors.h"
+#include "coop.h"
+#include "mod_savestate.h"
 #include "mod_function_hooks.h"
 #include <cstdio>
 #include <cctype>
@@ -196,8 +198,20 @@ int projectile_hit(uint16_t) { return smb3::projectile_hit(cyc_cpu_ram()); }
 int update_player_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), true, true); }
 int player_projectile_hit(uint16_t) { return smb3::player_projectile_hit(cyc_cpu_ram()); }
 int update_cannon(uint16_t) { return smb3::update_cannon(cyc_cpu_ram(), true); }
-int actor_draw_start(uint16_t) { return smb3::actor_drawing(cyc_cpu_ram(), true, true); }
-int actor_draw_end(uint16_t) { return smb3::actor_drawing(cyc_cpu_ram(), true, false); }
+int actor_draw_start(uint16_t) {
+    smb3::coop_object_begin(cyc_cpu_ram());
+    return smb3::actor_drawing(cyc_cpu_ram(), true, true);
+}
+int actor_draw_end(uint16_t) {
+    const int handled = smb3::actor_drawing(cyc_cpu_ram(), true, false);
+    smb3::coop_object_end(cyc_cpu_ram());
+    return handled;
+}
+int coop_player_hook(uint16_t) { return smb3::coop_player_update(cyc_cpu_ram()); }
+int coop_player_done_hook(uint16_t) { return smb3::coop_player_done(cyc_cpu_ram()); }
+int coop_scrolling_hook(uint16_t) { return smb3::coop_scrolling(); }
+int coop_die_hook(uint16_t) { return smb3::coop_die(cyc_cpu_ram()); }
+int coop_throw_hook(uint16_t) { return smb3::coop_throw(cyc_cpu_ram()); }
 int actor_keep_visible(uint16_t) { return smb3::keep_visible_actor(cyc_cpu_ram(), true); }
 int remember_collision_box(uint16_t) { return smb3::remember_collision_box(cyc_cpu_ram(), true); }
 int intersect_world_boxes(uint16_t) { return smb3::intersect_world_boxes(cyc_cpu_ram(), true); }
@@ -224,6 +238,12 @@ const int ActorHooksRegistered[] = {
     nes_mod_register_function_entry_plugin("smb3.wide-player-crush", 0xA45C, player_crush_boundary),
     nes_mod_register_function_entry_plugin("smb3.wide-player-boundary", 0xB1D0, player_window_boundary),
     nes_mod_register_function_entry_plugin("smb3.wide-autoscroll", 0xBCC0, autoscroll_player),
+    nes_mod_register_function_entry_plugin("smb3.coop-player", smb3::CoopPlayerUpdate, coop_player_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-player-done", 0xA1AB, coop_player_done_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-scrolling", 0xB11F, coop_scrolling_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-die", 0xDA7C, coop_die_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-throw", 0xA247, coop_throw_hook),
+    nes_mod_register_savestate_hook("smb3.coop", smb3::coop_save, smb3::coop_load),
 #ifdef CYC_WITH_RECOMP_UI
     nes_mod_register_function_entry_plugin("smb3.practice-world", 0x84A0, practice_start_world),
     nes_mod_register_function_entry_plugin("smb3.practice-level", 0x8732, practice_enter_level),
@@ -244,6 +264,8 @@ void state_loaded(void *) {
     smb3::displayed_extra_sprites = {};
     smb3::drawing_actor = -1;
     screen_effects = {};
+    smb3::coop.pass = smb3::CoopPass::Idle; // States are taken between frames.
+    smb3::coop.swapped = 0;
 }
 
 Image rgba_image(const unsigned char *rgba, int width, int height) {
@@ -462,6 +484,7 @@ void save_settings(void *, FILE *file) {
 
 bool option(void *, const char *name, const char *value) {
     if (!std::strcmp(name, "--skip-selection")) { frontend.loaded(); return true; }
+    if (!std::strcmp(name, "--coop")) { smb3::coop.enabled = 1; return true; }
     if (!std::strcmp(name, "--character")) {
         for (int i = 0; i < 4; ++i) {
             std::string candidate = Characters[i];
@@ -488,12 +511,13 @@ bool option(void *, const char *name, const char *value) {
     return false;
 }
 
-uint8_t chr_byte(unsigned address) {
+// banks: PatTable_BankSel's six registers, by default those of the frame shown.
+uint8_t chr_byte(unsigned address, const uint8_t *banks = nullptr) {
     if (rom.size() != 393216) return 0;
-    const uint8_t *ram = snapshot_valid ? frame_ram.data() : cyc_cpu_ram();
+    if (!banks) banks = (snapshot_valid ? frame_ram.data() : cyc_cpu_ram()) + 0x719;
     const unsigned bank = address < 0x1000 ?
-        (ram[0x719 + address / 2048] & 0x7e) + (address / 1024 & 1) :
-        ram[0x71b + (address - 0x1000) / 1024];
+        (banks[address / 2048] & 0x7e) + (address / 1024 & 1) :
+        banks[2 + (address - 0x1000) / 1024];
     return rom[ChrStart + (bank & 127) * 1024 + (address & 1023)];
 }
 
@@ -507,7 +531,7 @@ struct SpriteRow {
     }
 };
 
-SpriteRow sprite_row(const uint8_t *sprite, int y) {
+SpriteRow sprite_row(const uint8_t *sprite, int y, const uint8_t *banks = nullptr) {
     const int top = sprite[0] + 1;
     const bool tall = cyc_render_line_sprite16(std::min(top, Height - 1));
     const int h = tall ? 16 : 8;
@@ -516,13 +540,22 @@ SpriteRow sprite_row(const uint8_t *sprite, int y) {
     const uint16_t pattern = tall ? (sprite[1] & 1) * 0x1000 +
         ((sprite[1] & 0xfe) + y / 8) * 16 :
         cyc_render_line_sprite_table(std::min(top, Height - 1)) + sprite[1] * 16;
-    return {chr_byte(pattern + y % 8), chr_byte(pattern + y % 8 + 8), bool(sprite[2] & 0x40)};
+    return {chr_byte(pattern + y % 8, banks), chr_byte(pattern + y % 8 + 8, banks), bool(sprite[2] & 0x40)};
 }
 
-uint32_t player_color(unsigned nes_color, const uint8_t *ram) {
-    if (character < 2 && !ram[0x553] && !ram[0x555] && (ram[0xed] < 2 || ram[0xed] == 3) &&
-        (nes_color == 0x16 || nes_color == 0x2a)) nes_color = character == 0 ? 0x16 : 0x2a;
+// Player 2 in co-op: Luigi, or Mario when player 1 chose Luigi.
+int partner_character() { return character == 1 ? 0 : 1; }
+// Whose player variables are in RAM: player 1's, unless co-op handed the lead to player 2.
+int lead_character() { return smb3::coop.enabled && smb3::coop.partner_is_p1 ? partner_character() : character; }
+
+// Small, Super and Raccoon share the red or green palette of the character wearing them.
+uint32_t player_color(unsigned nes_color, unsigned suit, bool star, int who) {
+    if (who < 2 && !star && (suit < 2 || suit == 3) && (nes_color == 0x16 || nes_color == 0x2a))
+        nes_color = who == 0 ? 0x16 : 0x2a;
     return smb3::sprite_color(nes_color);
+}
+uint32_t player_color(unsigned nes_color, const uint8_t *ram) {
+    return player_color(nes_color, ram[0xed], ram[0x553] || ram[0x555], lead_character());
 }
 
 uint8_t sprite_palette(unsigned index) {
@@ -839,6 +872,7 @@ void place_screen_effects(std::array<int, 64> &positions, std::array<bool, 64> &
 
 void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
                   const std::vector<uint8_t> &opaque) {
+    const int character = lead_character(); // The player in RAM, whose sprites are in OAM.
     auto &sprites = sprite_layer;
     sprites.assign(width * PlayfieldHeight, 0);
     const uint8_t *sprites_oam = oam();
@@ -971,6 +1005,39 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
                 sprites[i] = smb3::sprite_priority(sprites[i], color, reference_attr & 0x20, opaque[i]);
             }
     };
+    // The co-op partner, from the sprites its own Player_Update drew, behind everything else.
+    // Its palette follows its own suit, which can differ from the lead's in the PPU.
+    if (smb3::coop.enabled && smb3::coop.present && !smb3::coop.respawn) {
+        const auto &partner = smb3::coop;
+        const int who = partner.partner_is_p1 ? ::character : partner_character();
+        const int suit = partner.partner[smb3::Suit];
+        const uint8_t *colors = smb3::coop_palettes ?
+            smb3::coop_palettes + (suit < 2 || suit == 3 ? 0 : std::min(suit, 7)) * 4 : nullptr;
+        const int relative_x = smb3::coop_x(partner.partner.data()) - partner.scroll_x;
+        const int rise = partner.scroll_y - ram[0x543]; // Level_VertScroll then and now
+        for (int slot = 5; slot >= 0; --slot) {
+            const uint8_t *sprite = partner.sprites.data() + slot * 4;
+            if (sprite[0] >= 0xef) continue;
+            const int left = origin + partner.scroll_x + smb3::unwrap(sprite[3], relative_x) - camera;
+            const int top = sprite[0] + 1 + rise;
+            const int h = cyc_render_line_sprite16(std::clamp(top, 0, Height - 1)) ? 16 : 8;
+            for (int y = 0; y < h; ++y) {
+                const int py = top + y;
+                if (py < 0 || py >= PlayfieldHeight || !(cyc_render_line_mask(py) & 0x10)) continue;
+                const auto row = sprite_row(sprite, y, partner.banks.data());
+                for (int x = 0; x < 8; ++x) {
+                    const int px = left + x;
+                    const unsigned value = row.pixel(x), palette = sprite[2] & 3;
+                    if (!value || px < 0 || px >= width) continue;
+                    // Star power cycles the other palettes; the PPU holds those.
+                    const unsigned nes = !palette && colors ? colors[value] : sprite_palette(16 + palette * 4 + value);
+                    const int i = py * width + px;
+                    sprites[i] = smb3::sprite_priority(sprites[i], player_color(nes, suit, palette != 0, who),
+                                                       sprite[2] & 0x20, opaque[i]);
+                }
+            }
+        }
+    }
     // The ROM still controls timing, visibility and priority for every character.
     for (int slot = 63; slot >= 0; --slot) {
         const uint8_t *sprite = sprites_oam + slot * 4;
@@ -1708,6 +1775,9 @@ void power_on(void *) {
     nes_mod_set_function_hook_enabled("smb3.wide-player-crush", 1);
     nes_mod_set_function_hook_enabled("smb3.wide-player-boundary", 1);
     nes_mod_set_function_hook_enabled("smb3.wide-autoscroll", 1);
+    for (const char *id : {"smb3.coop-player", "smb3.coop-player-done", "smb3.coop-scrolling", "smb3.coop-die",
+                           "smb3.coop-throw"})
+        nes_mod_set_function_hook_enabled(id, 1);
     smb3::extra_sprites = {};
     smb3::displayed_extra_sprites = {};
     smb3::drawing_actor = -1;
@@ -1716,6 +1786,9 @@ void power_on(void *) {
     cyc_render_capture_background(true);
     rom.resize(cyc_mod_copy_cart_payload(nullptr, 0));
     if (!rom.empty()) cyc_mod_copy_cart_payload(rom.data(), rom.size());
+    smb3::coop_palettes = rom.size() == 393216 ? rom.data() + 0x10529 : nullptr; // PowerUp_Palettes
+    smb3::coop.pass = smb3::CoopPass::Idle;
+    smb3::coop.swapped = 0;
 #ifdef CYC_WITH_RECOMP_UI
     nes_mod_set_function_hook_enabled("smb3.practice-world", 1);
     nes_mod_set_function_hook_enabled("smb3.practice-level", 1);
@@ -1953,7 +2026,7 @@ void read_campaign_save_info() {
     int world = -1, players = 1;
     while (std::getline(info, line)) {
         if (!line.compare(0, 6, "World=")) integer(line.c_str() + 6, 0, 7, world);
-        if (!line.compare(0, 8, "Players=")) integer(line.c_str() + 8, 1, 2, players);
+        if (!line.compare(0, 8, "Players=")) integer(line.c_str() + 8, 1, 3, players); // 3: co-op
     }
     std::error_code error;
     if (world >= 0 && std::filesystem::is_regular_file(campaign_save_path(), error)) {
@@ -1982,11 +2055,12 @@ void autosave_campaign() {
     PracticeState state;
     if (!state.capture()) return;
     const int world = cyc_cpu_ram()[0x727] & 7; // World_Num
-    const std::string info = "World=" + std::to_string(world) + "\nPlayers=" + std::to_string(frontend.players) + "\n";
+    const int players = smb3::coop.enabled ? 3 : frontend.players;
+    const std::string info = "World=" + std::to_string(world) + "\nPlayers=" + std::to_string(players) + "\n";
     if (write_file(campaign_save_path(), state.data.get(), state.size) &&
         write_file(campaign_save_path().replace_extension(".ini"), info.data(), info.size())) {
         campaign_save_world = world;
-        campaign_save_players = frontend.players;
+        campaign_save_players = players;
     } else std::fprintf(stderr, "SMB3 Remastered: no se pudo guardar la campaña en %s\n", campaign_save_path().string().c_str());
 }
 
@@ -1999,7 +2073,8 @@ bool load_campaign_save() {
     }
     practice_campaign.data.reset();
     cyc_state_ui_reset();
-    frontend.players = campaign_save_players;
+    smb3::coop.enabled = campaign_save_players == 3;
+    frontend.players = campaign_save_players == 3 ? 1 : campaign_save_players;
     return true;
 }
 
@@ -2016,6 +2091,12 @@ bool restart_campaign() {
 #endif
 
 void frontend_input(void *, uint8_t buttons[2]) {
+    if (smb3::coop.enabled) {
+        // The ROM reads controller 1 for the player in RAM; the other controller drives the partner.
+        if (smb3::coop.partner_is_p1) std::swap(buttons[0], buttons[1]);
+        smb3::coop.buttons = !frontend.active || frontend.screen == smb3::Screen::Playing ? buttons[1] : 0;
+        buttons[1] = 0;
+    }
     if (!frontend.active) return;
     if (frontend.screen == smb3::Screen::Intro) {
         const auto *ram = cyc_cpu_ram();
@@ -2070,6 +2151,7 @@ const CycHostOption Options[] = {
     {"--graphics", true, "classic | remastered"},
     {"--aspect", true, "native | 16:9 | fit"},
     {"--skip-selection", false, "Omitir la pantalla de personajes (pruebas automatizadas)"},
+    {"--coop", false, "Dos jugadores a la vez: el mando 2 controla al compañero"},
 };
 
 CycHostExtras make_extras() {

@@ -99,3 +99,28 @@ bytes = "A9 0A 8D 1F 07 A9 0B 8D 20 07 20 BF FF"
 id = "smb3.practice-level"
 addr = 0x8732
 bytes = "AC 29 07 C0 0D D0 06 A5 8B C9 03 F0 10"
+
+[[mod_function_hook]]
+id = "smb3.coop-player"
+addr = 0xA3CA
+bytes = "AD 78 05 F0 2B C9 0F 30"
+
+[[mod_function_hook]]
+id = "smb3.coop-player-done"
+addr = 0xA1AB
+bytes = "A5 F1 0D 71 05 0D 54 05"
+
+[[mod_function_hook]]
+id = "smb3.coop-scrolling"
+addr = 0xB11F
+bytes = "AD EF 03 F0 03 4C AB B2"
+
+[[mod_function_hook]]
+id = "smb3.coop-die"
+addr = 0xDA7C
+bytes = "AD F4 04 09 01 8D F4 04"
+
+[[mod_function_hook]]
+id = "smb3.coop-throw"
+addr = 0xA247
+bytes = "A5 ED C9 06 F0 04 C9 02"

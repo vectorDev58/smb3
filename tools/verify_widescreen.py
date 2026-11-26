@@ -194,6 +194,21 @@ def main():
                for i in range(5)), "No vuelve a activarse al salir de la zona y regresar"
     print("Caparazones: impacto, distancia real y ladrillo en 256; enemigo visible conservado (QA asistida).", flush=True)
 
+    # Co-op: controller 2 runs the partner through the ROM's own player and object code.
+    stomp = "450 2:RIGHT\n530 2:RIGHT+A\n544 2:RIGHT\n"
+    stomped = fixture("coop-stomp", stomp, frames=600, extra=("--coop", "--hash-out", out / "coop-stomp.hash"))
+    fixture("coop-stomp-interpreter", stomp, frames=600,
+            extra=("--coop", "--interp-only", "--hash-out", out / "coop-stomp-interpreter.hash"))
+    assert (out / "coop-stomp.hash").read_bytes() == (out / "coop-stomp-interpreter.hash").read_bytes()
+    final = stomped[-1][1]
+    assert final[0x665] != 2 and final[0x715:0x718] != bytes(3), "El compañero no pisa al Goomba"
+    assert all(ram[0x75] * 256 + ram[0x90] == 24 for _, ram, _ in stomped), "El mando 2 movió al jugador 1"
+    # Player 1 walks into the Goomba: the partner takes the lead instead of ending the level.
+    takeover = fixture("coop-takeover", "450 1:RIGHT\n", frames=660, extra=("--coop",))
+    assert all(not ram[0xf1] and not ram[0x14] for _, ram, _ in takeover), "La muerte del líder terminó el nivel"
+    assert not any(ram[0x4f4] & 1 for _, ram, _ in takeover), "Sonó la música de muerte con el compañero vivo"
+    print("Cooperativo: pisotón del compañero, mandos separados, relevo al morir el líder e intérprete igual.", flush=True)
+
     for number, map_y, tileset in ((3, 0x20, 1), (4, 0x40, 4)):
         controls = out / f"level-{number}.txt"
         controls.write_text(f"12 START\n13 NONE\n68 START\n69 NONE\n328 POKE 0079 A0\n"
@@ -218,7 +233,7 @@ def main():
     report = dict(result="passed", actor_counts=counts, enemy_projectiles_cross_native_edge=True,
                   native_interpreter_match=True, save_load_continuation=True, collision_distance_guard=True,
                   cannons=2, player_projectiles_cross_native_edge=True, chest_flags_preserved=True,
-                  shell_collision_and_bricks=True, visible_actor_retained=True, fallen_actor_waits_for_reentry=True,
+                  shell_collision_and_bricks=True, coop_partner_and_takeover=True, visible_actor_retained=True, fallen_actor_waits_for_reentry=True,
                   levels_1_3_and_1_4_execution_match=True, autoscroll_boundary_expanded=True,
                   complete_campaign_playthrough=False,
                   executable_sha256=hashlib.sha256(binary.read_bytes()).hexdigest())

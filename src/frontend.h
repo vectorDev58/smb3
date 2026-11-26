@@ -71,7 +71,7 @@ void frontend_settings(smb3::Screen back) {
 }
 void frontend_characters(smb3::Screen back, bool start_campaign, bool new_game) {
     character_choice = {back, start_campaign, new_game, start_campaign && !new_game && !frontend.started &&
-                        campaign_save_world >= 0, character, frontend.players};
+                        campaign_save_world >= 0, character, smb3::coop.enabled ? 3 : frontend.players};
     character_error = "";
     frontend_screen(smb3::Screen::Characters);
 }
@@ -715,9 +715,11 @@ void ui_characters(float scale) {
     if (ui_pressed(ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight)) turn(1);
     const bool choose_players = character_choice.start_campaign && !character_choice.load_save &&
         (character_choice.new_game || !frontend.started);
-    if (choose_players &&
-        (ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp) || ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown)))
-        character_choice.players = 3 - character_choice.players;
+    // 1 player, 2 players taking turns, or 2 players at once (3).
+    if (choose_players && ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown))
+        character_choice.players = character_choice.players % 3 + 1;
+    if (choose_players && ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp))
+        character_choice.players = (character_choice.players + 1) % 3 + 1;
 
     ui_frame(point(-376, 92), point(376, 612), scale);
     ui_text(smb3_text("SELECT CHARACTER", "ELIGE PERSONAJE"), 30 * scale, point(0, 116).y, 0xffffff, true);
@@ -773,12 +775,14 @@ void ui_characters(float scale) {
         const std::string world = std::string(smb3_text("WORLD ", "MUNDO ")) + std::to_string(campaign_save_world + 1);
         ui_text(world.c_str(), 20 * scale, point(0, 518).y, MenuGold);
     } else if (choose_players) {
-        for (int players = 1; players <= 2; ++players) {
-            const bool solo = players == 1;
-            const char *label = solo ? smb3_text("1 PLAYER", "1 JUGADOR") : smb3_text("2 PLAYERS", "2 JUGADORES");
-            if (ui_option(solo ? "single player" : "two players", label, point(solo ? -186 : 54, 513),
+        const char *const labels[] = {smb3_text("1 PLAYER", "1 JUGADOR"), smb3_text("2 PLAYERS", "2 JUGADORES"),
+                                      smb3_text("CO-OP", "COOPERATIVO")};
+        for (int players = 1; players <= 3; ++players) {
+            ImGui::PushID(players);
+            if (ui_option("players", labels[players - 1], point(-300 + (players - 1) * 222, 513),
                           ImVec2(190 * scale, 38 * scale), scale, character_choice.players == players, MenuWhite))
                 character_choice.players = players;
+            ImGui::PopID();
         }
     }
     const char *confirm = !character_choice.start_campaign ? smb3_text("CHOOSE", "ELEGIR") :
@@ -811,7 +815,10 @@ void ui_characters(float scale) {
         } else if (character_choice.new_game && frontend.started && !restart_campaign()) {
             character_error = smb3_text("Could not start a new game.", "No se pudo empezar una partida nueva.");
         } else {
-            frontend.players = character_choice.players;
+            // Co-op starts the ROM's one-player game; controller 2 joins in every level.
+            smb3::coop = {};
+            smb3::coop.enabled = character_choice.players == 3;
+            frontend.players = character_choice.players == 3 ? 1 : character_choice.players;
             frontend.play();
         }
     }
