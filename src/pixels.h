@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 namespace smb3 {
@@ -89,6 +90,18 @@ inline int wrap(int value, int size) { return (value % size + size) % size; }
 
 inline int unwrap(int value, int reference, int period = 256) {
     return reference + wrap(value - reference + period / 2, period) - period / 2;
+}
+
+// Scores, debris, coins and the shell's kill flash keep an eight-bit X relative to the NES screen.
+// Pick the copy, 256 pixels apart, nearest to whatever spawned it (the player, an actor or an effect).
+inline int wrapped_effect_x(int x8, const std::vector<int> &anchors, int left, int right) {
+    int best = x8, distance = 1 << 30;
+    for (int x = x8 - 768; x < x8 + 1024; x += 256) {
+        if (x < left || x >= right) continue;
+        for (int anchor : anchors)
+            if (std::abs(x - anchor) < distance) { distance = std::abs(x - anchor); best = x; }
+    }
+    return best;
 }
 
 // SMB1 Remastered's rainbow star: the sprite's shading over a hue that moves with phase.

@@ -71,9 +71,31 @@ static void check_resource_packs() {
     assert(hints.at(2 * 32 + 8 + 3, 5) == 0xff123456 && hints.at(16 + 1, 16 + 2) == 0xff654321);
 }
 
+static void check_widescreen_effects() {
+    // A score drawn at NES X 15 belongs to the goomba 271 pixels right of the screen origin, not to the left edge.
+    assert(smb3::wrapped_effect_x(15, {20}, -85, 341) == 15);
+    assert(smb3::wrapped_effect_x(15, {268}, -85, 341) == 271);
+    assert(smb3::wrapped_effect_x(240, {-20}, -85, 341) == -16);
+    assert(smb3::wrapped_effect_x(15, {}, -85, 341) == 15);
+    // Copies outside the visible width are never chosen, even when nearer to an anchor.
+    assert(smb3::wrapped_effect_x(100, {400}, -85, 341) == 100);
+
+    const uint32_t console[64] = {0xff123456};
+    smb3::classic_palette = console;
+    assert(smb3::color(0) == 0xff123456 && smb3::sprite_color(64) == 0xff123456);
+    smb3::classic_palette = nullptr;
+    assert(smb3::color(0) != 0xff123456);
+
+    assert(smb3::rainbow(0xff1f1f1f, 0) == 0xff1f1f1f); // Outlines stay dark.
+    const uint32_t red = smb3::rainbow(0xffffffff, 0), green = smb3::rainbow(0xffffffff, 120);
+    assert((red >> 16 & 255) > 200 && (red & 0xffff) == 0);
+    assert((green >> 8 & 255) > 200 && (green & 0xff00ff) == 0);
+}
+
 int main() {
     check_practice_levels();
     check_resource_packs();
+    check_widescreen_effects();
     smb3::FrontendFlow flow;
     assert(flow.intro_buttons(0x20, 0) == 0);
     flow.skip_intro = true;

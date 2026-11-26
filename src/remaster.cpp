@@ -93,6 +93,9 @@ size_t frame_cart_size = 0;
 bool snapshot_valid = false;
 void (*following_observer)(void) = nullptr;
 int following_line = -1;
+struct ScreenEffect { int x8 = 0, y = -1, spread = 0, tile = -1, real = 0, seen = -2; };
+std::array<ScreenEffect, 15> screen_effects; // Kill flash, 5 scores, 4 coins, 2 brick busts, 3 splashes.
+int effect_tick = 0; // Emulated frames, for the effects seen in this frame or the one before.
 
 #ifdef CYC_WITH_RECOMP_UI
 constexpr int PracticeWing = 7, PracticeStar = 8;
@@ -240,6 +243,7 @@ void state_loaded(void *) {
     smb3::extra_sprites = {};
     smb3::displayed_extra_sprites = {};
     smb3::drawing_actor = -1;
+    screen_effects = {};
 }
 
 Image rgba_image(const unsigned char *rgba, int width, int height) {
@@ -752,6 +756,87 @@ PlayerBounds player_bounds(const uint8_t *ram) {
     return bounds;
 }
 
+// SMB3 keeps these effects at an eight-bit X relative to the NES screen, so past its 256 pixels they
+// wrapped to the other side. Every emulated frame, a new effect is placed at the copy next to what made
+// it: the block the game just changed, the actor that hit or was hit, a cannon or the player. It then
+// keeps that copy while it moves, and its sprites are drawn there.
+void update_screen_effects() {
+    ++effect_tick;
+    const uint8_t *ram = cyc_cpu_ram();
+    size_t cart_size = 0;
+    const uint8_t *cart = cyc_cart_ram(&cart_size);
+    if (!smb3::wide_level(ram, true) || !cart || cart_size < 0x1fc6) return;
+    const int scroll = ram[0x12] * 256 + ram[0xfd], scroll_y = ram[0x543]; // Horz_Scroll, Level_VertScroll
+    const std::vector<int> block{ram[0x528] * 256 + ram[0x529] - scroll}, player{ram[0x75] * 256 + ram[0x90] - scroll};
+    std::vector<int> defeated, hitters = player, actors = player, cannons;
+    for (int i = 0; i < 8; ++i) {
+        const int state = ram[0x661 + i], x = ram[0x76 + i] * 256 + ram[0x91 + i] - scroll;
+        if (state) actors.push_back(x);
+        if (state == 3 || state >= 6) defeated.push_back(x); // Shelled, killed, squashed or poofed
+        if (state == 4 || state == 5) hitters.push_back(x);  // Held or kicked
+        if (cart[0x1a15 + i]) cannons.push_back(cart[0x1a2d + i] * 256 + cart[0x1a35 + i] - scroll);
+    }
+    std::vector<int> effects;
+    for (const auto &effect : screen_effects)
+        if (effect_tick - effect.seen <= 1) effects.push_back(effect.real);
+    using Origins = std::initializer_list<std::pair<const std::vector<int> *, int>>;
+    auto place = [&](int x8, Origins origins) {
+        for (const auto &[list, tolerance] : origins) { // In priority order, each within its tolerance.
+            int best = 0, distance = tolerance + 1;
+            for (int origin : *list) {
+                const int x = smb3::unwrap(x8, origin);
+                if (std::abs(x - origin) < distance) { distance = std::abs(x - origin); best = x; }
+            }
+            if (distance <= tolerance) return best;
+        }
+        // Only an effect whose origin vanished the same frame gets here.
+        actors.insert(actors.end(), effects.begin(), effects.end());
+        const int left = smb3::world_left(ram) - scroll;
+        return smb3::wrapped_effect_x(x8, actors, left - 32, left + cyc_video_width() + 32);
+    };
+    auto track = [&](int index, bool active, int x8, int y, int spread, int tile, Origins origins) {
+        auto &effect = screen_effects[index];
+        if (!active) return;
+        const int step = smb3::unwrap(x8, effect.x8) - effect.x8;
+        // Effects move a few pixels per frame; a jump means the slot holds a new one.
+        effect.real = effect_tick - effect.seen <= 1 && std::abs(step) <= 24 ? effect.real + step : place(x8, origins);
+        effect = {x8, y, spread, tile, effect.real, effect_tick};
+    };
+    track(0, cart[0x1a46], (cart[0x1a48] - scroll) & 255, (cart[0x1a47] - scroll_y) & 255, 0, 0x57,
+          {{&defeated, 16}, {&player, 40}}); // ShellKillFlash
+    for (int i = 0; i < 5; ++i) // Scores
+        track(1 + i, ram[0x79e + i], ram[0x7ad + i], ram[0x7a8 + i], 0, -1,
+              {{&defeated, 8}, {&effects, 8}, {&actors, 8}, {&player, 32}});
+    for (int i = 0; i < 4; ++i) // CoinPUp
+        track(6 + i, cart[0x1fb2 + i], cart[0x1fba + i], cart[0x1fb6 + i], 0, -1, {{&block, 12}, {&hitters, 32}});
+    for (int i = 0; i < 2; ++i) { // BrickBust: debris, or a poof at its upper Y
+        const bool debris = cart[0x1f9a + i] == 2;
+        track(10 + i, cart[0x1f9a + i], cart[0x1fa0 + i], debris ? -1 : cart[0x1f9d + i], cart[0x1fa6 + i],
+              debris ? 0x4b : -1, {{&block, 12}, {&cannons, 32}, {&defeated, 24}, {&actors, 24}});
+    }
+    for (int i = 0; i < 3; ++i) // Splash, which can stay fixed on screen vertically
+        track(12 + i, cart[0x1f8e + i], (cart[0x1f94 + i] - scroll) & 255,
+              (cart[0x1f91 + i] - (cart[0x1f97 + i] ? 0 : scroll_y)) & 255, 0, -1, {{&player, 24}, {&actors, 24}});
+}
+
+void place_screen_effects(std::array<int, 64> &positions, std::array<bool, 64> &grouped) {
+    const uint8_t *sprites = oam();
+    for (int slot = 0; slot < 64; ++slot) {
+        const uint8_t *sprite = sprites + slot * 4;
+        if (grouped[slot] || sprite[0] >= 0xef) continue;
+        for (const auto &effect : screen_effects) {
+            // The sprites can be a frame behind the effect, so allow a few pixels of travel.
+            const int dx = smb3::unwrap(sprite[3], effect.x8) - effect.x8;
+            if (effect_tick - effect.seen > 1 || dx < -effect.spread - 4 || dx > effect.spread + 12 ||
+                (effect.y >= 0 && std::abs(sprite[0] - effect.y) > 4) || (effect.tile >= 0 && sprite[1] != effect.tile))
+                continue;
+            positions[slot] = effect.real + dx;
+            grouped[slot] = true;
+            break;
+        }
+    }
+}
+
 void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
                   const std::vector<uint8_t> &opaque) {
     auto &sprites = sprite_layer;
@@ -792,6 +877,8 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
             grouped[slot] = true;
         }
     }
+    if (width > 256 && !ram[0x3ef])
+        place_screen_effects(positions, grouped);
     const int lower_row = sprites_oam[player.first * 4] + 1;
     const int upper_row = player.first <= 58 ? sprites_oam[(player.first + 3) * 4] + 1 : 256;
     const unsigned frame = ram[0xee];
@@ -1953,6 +2040,7 @@ void frontend_input(void *, uint8_t buttons[2]) {
 #endif
 }
 void frontend_frame_end(void *) {
+    update_screen_effects();
 #ifdef CYC_WITH_RECOMP_UI
     // The wait can last longer than the ROM's eight-bit tick. Keep it negative until resume.
     if (paused_wait && cyc_cpu_ram()[VBlankTick] == 0x80) cyc_mod_poke(VBlankTick, 0xff);
