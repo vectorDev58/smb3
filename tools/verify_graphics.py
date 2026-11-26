@@ -21,11 +21,10 @@ def main():
     report = out / "result.json"
     report.unlink(missing_ok=True)
     base_characters = ("mario", "luigi")
-    skins = binary.parent / "assets/remaster/Players"
-    optional_characters = ("toad", "toadette") if all(
-        (skins / name / f"{form}.png").is_file()
-        for name in ("Toad", "Toadette") for form in ("Small", "Big", "Fire")
-    ) else ()
+    # The executable decides: prepared art in assets/remaster or the downloads in resource_packs/.
+    optional_characters = ("toad", "toadette") if subprocess.run(
+        [str(binary), str(rom), "--no-save", "--frames", "1", "--character", "toadette"],
+        cwd=binary.parent, capture_output=True, timeout=60).returncode == 0 else ()
     characters = base_characters + optional_characters
     route = out / "idle.txt"
     route.write_text("12 START\n13 NONE\n68 START\n69 NONE\n328 RIGHT\n329 NONE\n"
@@ -208,7 +207,7 @@ def main():
             assert size(out / f"rom-only-{character}.png") == (426, 240)
         unavailable = subprocess.run([str(isolated_binary), str(rom), "--frames", "1", "--no-save",
                                       "--character", "toadette"], capture_output=True, timeout=30)
-        assert unavailable.returncode == 2 and b"requiere el arte local" in unavailable.stderr
+        assert unavailable.returncode == 2 and b"resource packs" in unavailable.stderr
     result = {"result": "passed", "characters": len(characters), "map_characters": len(characters),
               "map_inventory_toggle": True, "power_state_screens": 7 * len(characters),
               "leaf_poof_characters": len(characters),

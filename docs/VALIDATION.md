@@ -12,7 +12,7 @@ python3 tools/verify_widescreen.py
 ctest --test-dir build --output-on-failure
 ```
 
-- **26 pruebas Python** con datos sintéticos: importación y arranque, idioma del selector, integridad de la ROM, metadatos de animación, exclusión de archivos privados, lectura de capturas y conversión de controles.
+- **20 pruebas Python** con datos sintéticos: importación y arranque, idioma del selector, integridad de la ROM, exclusión de archivos privados, lectura de capturas y copia del arte preparado. `render_math` comprueba con hojas sintéticas los conversores de resource packs.
 - **600 fotogramas en 1-1**, entrando desde el título sin cambiar RAM: coinciden las trazas, la imagen de la PPU y el audio. La compilación estándar usa el intérprete. El mismo script compara código nativo e intérprete al ejecutarse sobre una compilación nativa local.
 - **Guardar en el fotograma 300 y continuar hasta el 600**: al cargar, todos los fotogramas restantes coinciden con la ejecucion continua.
 - **Mapas de los ocho mundos**, 450 fotogramas por mundo: coinciden las trazas y se captura su presentación Remastered. La prueba selecciona el mundo de forma asistida.
@@ -153,3 +153,13 @@ Estas pruebas no cubren todas las salas ni todas las variantes de desplazamiento
 Con la ROM local se recorrieron el aviso, la intro completa y el salto de intro, el menú principal, Settings, el selector de los cuatro personajes, el mapa y 1-1. Las pruebas de SDL usaron teclado en 1278 × 720 y un mando Xbox virtual en 1024 × 768. En la misma sesión se alternaron ambos dispositivos y se verificaron las indicaciones, la reasignación y el regreso desde la pausa al título.
 
 La imagen permaneció idéntica entre dos capturas separadas por más de cuatro segundos en la pausa de 1-1. Se comprobó el mismo comportamiento en el mapa. La salida de audio mantuvo muestras de la música durante la pausa, también dentro de Settings, con una reducción de altas frecuencias. Al reanudar siguieron el movimiento y el temporizador. Estas comprobaciones corresponden al mapa y a 1-1.
+
+## Resource packs — 25 de noviembre de 2026
+
+El ejecutable lee `resource_packs/` junto a él, como Super Mario Bros. Remastered. Con las cuatro descargas originales (SMB3-mastered v0.9 extraído, hoja 143355, hoja WebP de Newgrounds y el ZIP de Vryell extraído) genera en memoria los atlas de campaña, selector, mapa y vuelo y los iconos de controles.
+
+- **Paridad de imágenes**: los 14 PNG generados (3 de campaña, 4 de selector, 3 de mapa, 3 de vuelo y los iconos) coinciden píxel a píxel con el arte que preparaban los importadores Python, incluidos los valores RGB bajo transparencia.
+- **Paridad en juego**: se instaló el runtime en una carpeta limpia que solo tenía `resource_packs/`. Se compararon 25 escenas con la compilación que usa `assets/remaster/`: nivel 1-1, mapa y los trajes Super, Mapache, Rana, Tanuki y Martillo para Luigi, Toad y Toadette, más el vuelo con Mapache de los cuatro personajes. Las 435 capturas Remastered 16:9 coinciden.
+- **Sin packs**: Toad y Toadette no aparecen, `--character toad` termina con un mensaje que remite a README.md y el juego crea la carpeta vacía `resource_packs/`.
+
+No se comprobó una partida completa con los packs, ni el ejecutable de Windows con rutas no ASCII dentro de `resource_packs/`.

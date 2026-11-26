@@ -6,5 +6,9 @@
   "recomp-ui": {
     "url": "https://github.com/RetroPortingToolKit/recomp-ui.git",
     "revision": "7c9eea3e5c4050223cd91c42ba8c076a99ae79c9"
+  },
+  "libwebp": {
+    "url": "https://github.com/webmproject/libwebp.git",
+    "revision": "4fa21912338357f89e4fd51cf2368325b59e9bd9"
   }
 }

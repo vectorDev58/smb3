@@ -4,6 +4,7 @@
 #include "frontend_flow.h"
 #include "menu_art.h"
 #include "practice.h"
+#include "resource_packs.h"
 #include <cassert>
 
 static void check_practice_levels() {
@@ -33,8 +34,42 @@ static void check_practice_levels() {
     assert(worlds[1].empty());
 }
 
+static smb3::Image filled(int width, int height, uint32_t pixel) {
+    smb3::Image image = smb3::blank_image(width, height);
+    image.pixels.assign(image.pixels.size(), pixel);
+    return image;
+}
+
+static void check_resource_packs() {
+    using namespace smb3;
+    // Only the exact sheet revisions are converted; anything else keeps the ROM poses.
+    assert(campaign_art(filled(1961, 4246, 0xff282828)).empty());
+    assert(reference_art(filled(1961, 4290, 0xff282828)).empty());
+    assert(campaign_art(filled(CampaignSheetWidth, CampaignSheetHeight, 0xff849dbd)).empty()); // all backdrop
+    const auto campaign = campaign_art(filled(CampaignSheetWidth, CampaignSheetHeight, 0xff282828));
+    assert(campaign.size() == 3 && campaign[1].first == "Players/Toad/Campaign.png");
+    const Image &toad = campaign[1].second;
+    assert(toad.width == CampaignFrames * 32 && toad.height == 7 * 32);
+    assert(toad.at(0x0b * 32, 15) == 0 && toad.at(0x0b * 32, 16) == 0xff1f1f1f); // small frame sits at the bottom
+    assert(toad.at(0x27 * 32, 32 * 3 + 7) == 0 && toad.at(0x27 * 32, 32 * 3 + 8) == 0xff1f1f1f); // shrunk to 24 rows
+    assert(campaign_color(0xf04060, 3) == 0xff50c8 && campaign_color(0xf04060, 2) == 0xf04060);
+    assert(campaign_poses(0)[0x43].row == 182 && campaign_poses(0)[0x43].padding == 4);
+    assert(campaign_poses(2)[0x1b].x == 104 && campaign_poses(2)[93].x == 236 && campaign_poses(6)[0x18].row == 2007);
+
+    assert(reference_art(filled(ReferenceSheetWidth, ReferenceSheetHeight, 0xff2f3368)).empty());
+
+    Image keyboard = blank_image(256, 416), controller = blank_image(112, 432);
+    keyboard.pixels[(384 + 5) * 256 + 144 + 3] = 0xff123456;    // third hint, a single key
+    controller.pixels[(160 + 2) * 112 + 48 + 1] = 0xff654321; // first hint, second button
+    assert(hint_atlas(controller, keyboard).empty());
+    const Image hints = hint_atlas(keyboard, controller);
+    assert(hints.width == 224 && hints.height == 32);
+    assert(hints.at(2 * 32 + 8 + 3, 5) == 0xff123456 && hints.at(16 + 1, 16 + 2) == 0xff654321);
+}
+
 int main() {
     check_practice_levels();
+    check_resource_packs();
     smb3::FrontendFlow flow;
     assert(flow.intro_buttons(0x20, 0) == 0);
     flow.skip_intro = true;

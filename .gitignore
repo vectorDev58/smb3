@@ -33,3 +33,5 @@ imgui.ini
 cyc_shot_*.png
 diagnostics/
 saves/
+/resource_packs/
+*.webp

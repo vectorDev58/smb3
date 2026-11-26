@@ -31,15 +31,28 @@ cd smb3-pc-linux-x86_64
 3. Choose **Play**. Use left and right to pick a character and up and down to select **1 Player** or **2 Players**. Confirm with Enter or A.
 4. Move around the world map and enter a stage with Z or A.
 
-The ROM is the only game file you need to supply. The default remastered presentation includes themed backgrounds, layered scenery, animated blocks and coins, translucent water, and input hints that switch between keyboard and Xbox-style controllers.
+The ROM is the only game file you need to supply. The default remastered presentation includes themed backgrounds, layered scenery, animated blocks and coins, translucent water, and input hints that switch between keyboard and Xbox-style controllers. Resource packs add Toad, Toadette, Luigi's own design, and more artwork.
 
-If the file picker is unavailable, pass the ROM path directly, for example `./smb3 "/path/to/game.nes"` on Linux or `.\smb3.exe "C:\Games\game.nes"` in PowerShell. The picker validates the ROM and remembers its path for the next launch. Keep `config.ini`, `rom.cfg`, and `saves/` from your old folder when moving to a new release. Save states are tied to a compatible ROM and engine build.
+If the file picker is unavailable, pass the ROM path directly, for example `./smb3 "/path/to/game.nes"` on Linux or `.\smb3.exe "C:\Games\game.nes"` in PowerShell. The picker validates the ROM and remembers its path for the next launch. Keep `config.ini`, `rom.cfg`, `saves/`, and `resource_packs/` from your old folder when moving to a new release. Save states are tied to a compatible ROM and engine build.
 
 The ROM checker expects 393,232 bytes including the original iNES header. Use this SHA-256 to identify the exact revision if the picker rejects a file.
 
 ```text
 6ea0777ca520ba7ad7b0ea0f6452140d59aa0b1dffe5045cb1e8020dde10c267
 ```
+
+### Resource packs: Toad, Toadette, Luigi, and more art
+
+This project follows the rule of Super Mario Bros. Remastered: the repository and the downloads contain only code and artwork made for the project. Nintendo's artwork comes from your ROM. Artwork made by other fans is installed as resource packs. Download each pack from its author and place it in the `resource_packs` folder beside the executable. The game creates this folder on first launch and reads the packs when it starts.
+
+| Download from the author | Place in `resource_packs` | Adds |
+| --- | --- | --- |
+| [SMB3-mastered v0.9](https://gamebanana.com/mods/621828) by RadzPrower | Extract the ZIP. It creates `SMB3-mastered/`. | Remastered skies and hills, animated question blocks, bricks and coins, and the Small, Big and Fire sheets for Toad and Toadette |
+| [Expanded SMM2 SMB3 sprites, sheet 143355](https://www.spriters-resource.com/custom_edited/mariocustoms/sheet/143355/) by GlacialSiren484, SuperCoolFernie and PixelMarioXP | The PNG as downloaded, 1961 × 4290 | Every suit for Toad and Toadette, and Luigi's own design during levels |
+| [Expanded SMM2 SMB3 sprites, updated sheet](https://www.newgrounds.com/art/view/glacialsiren484/sprite-sheet-expanded-smm2-smb3-sprites-for-mario-luigi-toad-and-toadette) by GlacialSiren484 | The WebP as downloaded, 1961 × 4246 | Character-select and map poses, and jump and flight poses |
+| [Controller & Keyboard Icons](https://vryell.itch.io/controller-keyboard-icons) by Vryell | Extract the ZIP. It creates `Controllers and Keyboard/`. | Keyboard and Xbox button guides |
+
+Toad and Toadette appear in character selection when the first two packs are installed. The file names can change, because the game recognizes each sheet by its size. Extract ZIP files before starting the game. If a sheet is a different revision, the game keeps the ROM poses for that part. Each pack keeps its author's terms, so every player downloads their own copy. Vryell's terms forbid redistributing the icons.
 
 ### Default controls
 
@@ -64,7 +77,7 @@ English is the default. Open **Settings → System → Language** and use Left o
 
 ## Project status
 
-The ROM supplies the game logic, stages, music, effects, and base graphics. The runtime reads the original tile patterns and palettes when you start the game and combines them with generated background layers and highlights. The grassland scenery reuses the triangular texture from the ROM. Mario and Luigi are available with these default graphics. The optional local graphics import adds alternate backgrounds and character artwork and enables Toad and Toadette with the original gameplay rules.
+The ROM supplies the game logic, stages, music, effects, and base graphics. The runtime reads the original tile patterns and palettes when you start the game and combines them with generated background layers and highlights. The grassland scenery reuses the triangular texture from the ROM. Mario and Luigi are available with these default graphics. Resource packs add alternate backgrounds and character artwork and enable Toad and Toadette with the original gameplay rules.
 
 Local testing covers title and character selection, pause, the route into World 1-1, save and restore, and all eight world maps. Longer recorded runs reached later worlds and the final castle, then lost input synchronization before the ending. The test report records the exact coverage and assisted setups. [Validation notes in Spanish](docs/VALIDATION.md)
 
@@ -99,23 +112,9 @@ py -3 tools/smb3.py build
 
 `play.sh` and `play.cmd` provide a source-checkout launcher that builds on first use and accepts a `.nes` or a ZIP containing one ROM. In a terminal, `python3 tools/smb3.py import-rom "/path/to/game.zip"` imports a validated copy to `private/baserom.nes`. Use `py -3` on Windows.
 
-### Optional local art and input icons
+### Resource packs in a source build
 
-Use these imports if you want the alternate art or the additional characters. Run them from a source checkout with your own copies of the packs. The character-sheet and icon importers require Pillow, available via `sudo apt install python3-pil` on Ubuntu or `py -3 -m pip install Pillow` on Windows.
-
-```sh
-python3 tools/smb3.py import-graphics "/path/to/smb3-mastered_v0_9.zip"
-python3 tools/smb3.py import-characters "/path/to/expanded-character-sheet.webp"
-python3 tools/smb3.py import-controls "/path/to/Controllers and Keyboard.zip"
-```
-
-The importers stage the generated files in `assets/remaster/` beside the source build's executable, normally under `build/` on Linux or `build/Release/` on Windows. For a prebuilt release, copy that generated `assets/remaster/` folder beside its extracted executable. GitHub packages contain the runtime, configuration, and notices. ROMs, optional packs, and generated game art are supplied locally.
-
-### Package your local build with its artwork
-
-After preparing the art and building the executable, run `python3 tools/smb3.py package-local` on Linux or `py -3 tools/smb3.py package-local` on Windows. The archive in `private/packages/` includes the four character appearances, their selector and map poses, the alternate scenery, and the imported keyboard and Xbox icons. Extract it once and select your ROM on first launch.
-
-The full package expects the prepared campaign atlases for Luigi, Toad, and Toadette. For a new setup, use `import-graphics --powers` with a directory containing `Toad/Campaign.png` and `Toadette/Campaign.png`, and `import-characters --luigi-campaign` with Luigi's prepared atlas. An existing import that already has those atlases can be packaged directly. The archive uses the same runtime installer and credits as the GitHub build. Keep it with your local imports.
+Place the resource packs in `resource_packs/` beside the built executable, `build/` on Linux or `build/Release/` on Windows. The source build reads them the same way as a release. Art prepared by earlier versions of the importers in `private/` is still copied to `assets/remaster/`, which takes priority over the packs.
 
 ## Contribute
 
@@ -158,8 +157,8 @@ After both builds pass, the workflow attaches both platform archives and the sou
 - **Matthew Stanley and contributors** built NESRecomp and recomp-ui, which provide the runtime, launcher, and settings. [NESRecomp](https://github.com/mstan/nesrecomp) · [recomp-ui](https://github.com/RetroPortingToolKit/recomp-ui)
 - **JHDev2006 and the SMB1 Remastered contributors** inspired the widescreen presentation, ROM import, character selector, and pause experience. [Super Mario Bros. Remastered](https://github.com/JHDev2006/Super-Mario-Bros.-Remastered-Public)
 - **Southbird** documented SMB3's routines and memory layout. [SMB3 disassembly](https://github.com/captainsouthbird/smb3)
-- **RadzPrower** created the SMB3-mastered pack used by the optional graphics importer. [SMB3-mastered](https://gamebanana.com/mods/621828)
-- **GlacialSiren484, SuperCoolFernie, and PixelMarioXP** contributed to the expanded character reference sheet used for optional poses. [Expanded SMB3 sprites](https://mfgg.net/index.php?act=resdb&param=02&c=1&id=41350)
-- **Vryell** created the optional keyboard and controller icons using **PineTreePizza's** Rosy-42 palette. [Controller & Keyboard Icons](https://vryell.itch.io/controller-keyboard-icons)
+- **RadzPrower** created the SMB3-mastered resource pack. [SMB3-mastered](https://gamebanana.com/mods/621828)
+- **GlacialSiren484, SuperCoolFernie, and PixelMarioXP** created the expanded character sheets used for Luigi, Toad, and Toadette. [Sheet 143355](https://www.spriters-resource.com/custom_edited/mariocustoms/sheet/143355/) · [Updated sheet](https://www.newgrounds.com/art/view/glacialsiren484/sprite-sheet-expanded-smm2-smb3-sprites-for-mario-luigi-toad-and-toadette)
+- **Vryell** created the keyboard and controller icons using **PineTreePizza's** Rosy-42 palette. [Controller & Keyboard Icons](https://vryell.itch.io/controller-keyboard-icons)
 
 The integration code and tools use the MIT license. The combined executable includes NESRecomp under PolyForm Noncommercial 1.0.0 with additional permissions. Third-party works retain their own terms. The notices also credit the libraries, reference sheets, and recorded test routes. [Project license](LICENSE) · [Third-party notices](THIRD_PARTY.md)

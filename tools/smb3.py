@@ -8,9 +8,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
-from graphics import import_character_reference, import_controls, import_graphics, stage_graphics, validate_full_graphics
+from graphics import stage_graphics
 
 ROOT = Path(__file__).resolve().parents[1]
 ROM_SIZE = 393232
@@ -171,64 +170,20 @@ def source_zip():
     print(f"Fuentes sin ROM ({len(paths)} archivos): {destination}")
 
 
-def package_local():
-    build_directory = ROOT / "build"
-    if not executable().is_file() or not (build_directory / "CPackConfig.cmake").is_file():
-        raise ValueError("Compila primero el ejecutable para Windows o Linux x86-64.")
-    windows = sys.platform == "win32"
-    platform = "windows" if windows else "linux"
-    name = f"smb3-pc-{platform}-x86_64-local-art"
-    destination = ROOT / "private/packages"
-    destination.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=destination, prefix=".package-") as temporary:
-        staging = Path(temporary) / name
-        stage_graphics(ROOT, staging)
-        validate_full_graphics(staging / "assets/remaster")
-        run(["cmake", "--install", build_directory, "--config", "Release", "--component", "SMB3Runtime",
-             "--prefix", staging])
-        archive = Path(shutil.make_archive(str(staging), "zip" if windows else "gztar", temporary, name))
-        result = archive.replace(destination / archive.name)
-    print(f"Paquete local con gráficos completos: {result}")
-    return result
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     importer = commands.add_parser("import-rom", help="Importa tu .nes o .zip en private/.")
     importer.add_argument("source", type=Path)
-    graphics = commands.add_parser("import-graphics", help="Prepara localmente el ZIP SMB3-mastered v0.9.")
-    graphics.add_argument("source", type=Path)
-    graphics.add_argument("--powers", type=Path, help="Carpeta local con los atlas Campaign.png de Toad y Toadette.")
-    characters = commands.add_parser("import-characters", help="Prepara las poses de selector, mapa y vuelo de la hoja aportada.")
-    characters.add_argument("source", type=Path)
-    characters.add_argument("--luigi-campaign", type=Path, help="Atlas local opcional de animaciones de Luigi.")
-    controls = commands.add_parser("import-controls", help="Prepara iconos locales para teclado y mando Xbox.")
-    controls.add_argument("source", type=Path)
     commands.add_parser("build", help="Descarga las dependencias fijadas y compila.")
-    commands.add_parser("package-local", help="Empaqueta el ejecutable con el arte preparado en private/.")
     commands.add_parser("play", help="Abre el lanzador; compila si hace falta.")
     commands.add_parser("source-zip", help="Crea un ZIP de fuentes sin ROM, partidas ni dependencias.")
     args = parser.parse_args()
     try:
         if args.command == "import-rom":
             print(f"ROM verificada e importada: {import_rom(args.source)}")
-        elif args.command == "import-graphics":
-            count = import_graphics(args.source, ROOT / "private/remaster-art", args.powers)
-            stage_graphics(ROOT, executable().parent)
-            print(f"Graficos preparados para uso local: {count} imagenes.")
-        elif args.command == "import-characters":
-            import_character_reference(args.source, ROOT / "private/character-reference", args.luigi_campaign)
-            stage_graphics(ROOT, executable().parent)
-            print("Hoja de personajes preparada para uso local.")
-        elif args.command == "import-controls":
-            import_controls(args.source, ROOT / "private/control-reference/Controls")
-            stage_graphics(ROOT, executable().parent)
-            print("Iconos de Vryell preparados para uso local.")
         elif args.command == "build":
             build()
-        elif args.command == "package-local":
-            package_local()
         elif args.command == "source-zip":
             source_zip()
         else:

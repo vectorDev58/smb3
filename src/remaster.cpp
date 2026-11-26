@@ -1,6 +1,7 @@
 #include "pixels.h"
 #include "backdrops.h"
 #include "characters.h"
+#include "resource_packs.h"
 #include "frontend_flow.h"
 #include "menu_art.h"
 #include "ui_language.h"
@@ -21,11 +22,12 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include "webp/decode.h"
 
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
-#define STBI_MAX_DIMENSIONS 4096
+#define STBI_MAX_DIMENSIONS 8192
 #include "stb_image.h"
 
 #ifdef CYC_WITH_SDL
@@ -72,6 +74,7 @@ int title_native_origin = 0;
 std::array<uint8_t, 2> paused_buttons{};
 #endif
 std::filesystem::path art_directory;
+std::vector<std::filesystem::path> pack_sprites; // resource_packs/*/Sprites, as in SMB1 Remastered packs.
 std::unordered_map<std::string, Image> images;
 std::unordered_map<uint32_t, unsigned> frame_colors;
 std::vector<uint8_t> rom;
@@ -236,41 +239,87 @@ void state_loaded(void *) {
     smb3::drawing_actor = -1;
 }
 
-Image load_image(const std::filesystem::path &path) {
+Image rgba_image(const unsigned char *rgba, int width, int height) {
     Image result;
-    // Reading via filesystem preserves non-ASCII paths on Windows.
-    FILE *file = nullptr;
-#ifdef _WIN32
-    file = _wfopen(path.c_str(), L"rb");
-#else
-    file = std::fopen(path.c_str(), "rb");
-#endif
-    if (!file) return result;
-    int channels = 0;
-    int width = 0, height = 0;
-    if (!stbi_info_from_file(file, &width, &height, &channels) ||
-        width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
-        static_cast<int64_t>(width) * height > 4194304) {
-        std::fclose(file);
-        return result;
-    }
-    unsigned char *rgba = stbi_load_from_file(file, &width, &height, &channels, 4);
-    std::fclose(file);
-    if (!rgba) return result;
     result.width = width;
     result.height = height;
-    result.pixels.resize(width * height);
+    result.pixels.resize(static_cast<size_t>(width) * height);
     for (size_t i = 0; i < result.pixels.size(); ++i)
         result.pixels[i] = (uint32_t(rgba[i * 4 + 3]) << 24) |
                           (uint32_t(rgba[i * 4]) << 16) |
                           (uint32_t(rgba[i * 4 + 1]) << 8) | rgba[i * 4 + 2];
+    return result;
+}
+
+// Reading via filesystem preserves non-ASCII paths on Windows.
+FILE *open_file(const std::filesystem::path &path) {
+#ifdef _WIN32
+    return _wfopen(path.c_str(), L"rb");
+#else
+    return std::fopen(path.c_str(), "rb");
+#endif
+}
+
+bool png_size(const std::filesystem::path &path, int &width, int &height) {
+    FILE *file = open_file(path);
+    if (!file) return false;
+    int channels = 0;
+    const bool valid = stbi_info_from_file(file, &width, &height, &channels);
+    std::fclose(file);
+    return valid;
+}
+
+Image load_image(const std::filesystem::path &path, int64_t max_pixels = 4194304) {
+    FILE *file = open_file(path);
+    if (!file) return {};
+    int channels = 0;
+    int width = 0, height = 0;
+    if (!stbi_info_from_file(file, &width, &height, &channels) ||
+        width <= 0 || height <= 0 || static_cast<int64_t>(width) * height > max_pixels) {
+        std::fclose(file);
+        return {};
+    }
+    unsigned char *rgba = stbi_load_from_file(file, &width, &height, &channels, 4);
+    std::fclose(file);
+    if (!rgba) return {};
+    Image result = rgba_image(rgba, width, height);
     stbi_image_free(rgba);
+    return result;
+}
+
+std::vector<uint8_t> read_file(const std::filesystem::path &path, size_t limit) {
+    std::vector<uint8_t> data;
+    FILE *file = open_file(path);
+    if (!file) return data;
+    data.resize(limit + 1);
+    data.resize(std::fread(data.data(), 1, data.size(), file));
+    std::fclose(file);
+    if (data.size() > limit) data.clear();
+    return data;
+}
+
+// The newer character sheet is published as WebP. Only that exact size is decoded.
+Image load_webp(const std::filesystem::path &path, int width, int height) {
+    const auto data = read_file(path, 16 * 1024 * 1024);
+    int actual_width = 0, actual_height = 0;
+    if (data.empty() || !WebPGetInfo(data.data(), data.size(), &actual_width, &actual_height) ||
+        actual_width != width || actual_height != height) return {};
+    uint8_t *rgba = WebPDecodeRGBA(data.data(), data.size(), &actual_width, &actual_height);
+    if (!rgba) return {};
+    Image result = rgba_image(rgba, actual_width, actual_height);
+    WebPFree(rgba);
+    return result;
+}
+
+Image load_art(const std::string &name) {
+    Image result = load_image(art_directory / name);
+    for (size_t i = 0; result.empty() && i < pack_sprites.size(); ++i) result = load_image(pack_sprites[i] / name);
     return result;
 }
 
 const Image &image(const std::string &name) {
     auto found = images.find(name);
-    if (found == images.end()) found = images.emplace(name, load_image(art_directory / name)).first;
+    if (found == images.end()) found = images.emplace(name, load_art(name)).first;
     return found->second;
 }
 
@@ -295,6 +344,58 @@ std::array<uint32_t, 4> character_colors(int index, unsigned form) {
     return {0, index == 2 ? 0xff007effu : 0xffff50c8u, 0xffffd9b2, 0xff1f1f1f};
 }
 
+bool any_missing(std::initializer_list<const char *> names) {
+    for (const char *name : names)
+        if (image(name).empty()) return true;
+    return false;
+}
+
+void add_missing(smb3::NamedImages art) {
+    for (auto &[name, picture] : art)
+        if (image(name).empty()) images[name] = std::move(picture);
+}
+
+// Packs follow SMB1 Remastered: each folder in resource_packs/ keeps its art under Sprites/.
+// The character sheets and Vryell's icons are converted here from the player's downloads.
+// shortcut: ZIP downloads must be extracted first; read them in place if players keep missing that step.
+void load_resource_packs(const std::filesystem::path &root) {
+    std::error_code error;
+    std::filesystem::create_directories(root, error); // Shows players where packs go.
+    std::vector<std::filesystem::path> files;
+    for (std::filesystem::recursive_directory_iterator entry(
+             root, std::filesystem::directory_options::skip_permission_denied, error), end;
+         !error && entry != end; entry.increment(error)) {
+        if (!entry->is_directory(error)) files.push_back(entry->path());
+        else if (entry->path().filename() == "Sprites") {
+            pack_sprites.push_back(entry->path());
+            entry.disable_recursion_pending();
+        }
+    }
+    std::sort(pack_sprites.begin(), pack_sprites.end());
+    std::sort(files.begin(), files.end());
+    constexpr int64_t SheetPixels = 1 << 24;
+    for (const auto &file : files) {
+        const auto extension = file.extension();
+        int width = 0, height = 0;
+        const bool png = extension == ".png" && png_size(file, width, height);
+        if (png && width == smb3::CampaignSheetWidth && height == smb3::CampaignSheetHeight) {
+            if (any_missing({"Players/Luigi/Campaign.png", "Players/Toad/Campaign.png", "Players/Toadette/Campaign.png"}))
+                add_missing(smb3::campaign_art(load_image(file, SheetPixels)));
+        } else if ((png && width == smb3::ReferenceSheetWidth && height == smb3::ReferenceSheetHeight) ||
+                   extension == ".webp") {
+            if (any_missing({"Players/Mario/Selector.png", "Players/Luigi/Selector.png", "Players/Toad/Selector.png",
+                             "Players/Toadette/Selector.png", "Players/Luigi/Map.png", "Players/Toad/Map.png",
+                             "Players/Toadette/Map.png", "Players/Luigi/Airborne.png", "Players/Toad/Airborne.png",
+                             "Players/Toadette/Airborne.png"}))
+                add_missing(smb3::reference_art(png ? load_image(file, SheetPixels) :
+                    load_webp(file, smb3::ReferenceSheetWidth, smb3::ReferenceSheetHeight)));
+        } else if (png && file.filename() == "kb_dark_all.png" && any_missing({"Controls/Hints.png"})) {
+            add_missing({{"Controls/Hints.png",
+                          smb3::hint_atlas(load_image(file), load_image(file.parent_path() / "controller_xbox.png"))}});
+        }
+    }
+}
+
 void load_local_art() {
     if (!art_directory.empty()) return;
     std::filesystem::path base = std::filesystem::current_path();
@@ -303,9 +404,11 @@ void load_local_art() {
     if (executable_path) { base = std::filesystem::u8path(executable_path); SDL_free(executable_path); }
 #endif
     art_directory = base / "assets/remaster";
+    load_resource_packs(base / "resource_packs");
     character_count = 4;
+    // Form 3 reads Campaign.png, which Toad and Toadette need for every suit beyond Fire.
     for (int index = 2; index < 4; ++index)
-        for (unsigned form = 0; form < 3; ++form)
+        for (unsigned form = 0; form < 4; ++form)
             if (!smb3::sprite_visible(player_sprite(index, form, 0))) character_count = 2;
 }
 
@@ -351,7 +454,7 @@ bool option(void *, const char *name, const char *value) {
             if (candidate != value) continue;
             load_local_art();
             if (i >= character_count) {
-                std::fprintf(stderr, "%s requiere el arte local de SMB3-mastered.\n", Characters[i]);
+                std::fprintf(stderr, "%s necesita los resource packs descritos en README.md.\n", Characters[i]);
                 return false;
             }
             character = i;
@@ -1402,7 +1505,7 @@ void power_on(void *) {
     }
     load_local_art();
     if (character >= character_count) character = 0;
-    const bool local_art = std::filesystem::exists(art_directory / "manifest.json");
+    const bool local_art = std::filesystem::exists(art_directory / "manifest.json") || !pack_sprites.empty();
     std::fprintf(stderr, "SMB3 Remastered: %s; personaje %s; arte local %s\n",
                  enhanced ? "activado" : "clasico", Characters[character],
                  local_art ? "disponible" : "no instalado (ROM)");
