@@ -838,31 +838,6 @@ int ui_menu(const char *const *labels, int count, int &choice, float y, float sc
     return action;
 }
 
-// One row under the title logo, so the options stay clear of the demo actors on the floor.
-int ui_menu_row(const char *const *labels, int count, int &choice, float y, float scale) {
-    if (ui_pressed(ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft) || ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp))
-        choice = (choice + count - 1) % count;
-    if (ui_pressed(ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight) || ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown))
-        choice = (choice + 1) % count;
-    int action = ui_confirm(true) ? choice : -1;
-    const float size = (count > 3 ? 22 : 24) * scale, gap = (count > 3 ? 46 : 58) * scale;
-    float width = -gap;
-    for (int i = 0; i < count; ++i) width += ui_text_width(labels[i], size) + gap;
-    float x = (ImGui::GetIO().DisplaySize.x - width) / 2;
-    for (int i = 0; i < count; ++i) {
-        const float label_width = ui_text_width(labels[i], size);
-        ImGui::SetCursorScreenPos(ImVec2(x - 42 * scale, y - 4 * scale));
-        ImGui::PushID(i);
-        if (ImGui::InvisibleButton("menu option", ImVec2(label_width + 42 * scale, size + 8 * scale))) action = i;
-        if (ui_mouse && ImGui::IsItemHovered()) choice = i;
-        ImGui::PopID();
-        if (choice == i) ui_cursor(ImVec2(x - 42 * scale, y), scale);
-        ui_text_at(labels[i], size, x, y, 0xffffff, true);
-        x += label_width + gap;
-    }
-    return action;
-}
-
 bool ui_open(void *) {
     return frontend.screen != smb3::Screen::Playing;
 }
@@ -927,14 +902,15 @@ void ui_render(void *) {
             const float title_scale = std::min(scale, picture.h / 720.f);
             const int count = resume ? 4 : 3;
             main_choice = std::min(main_choice, count - 1);
-            int action = ui_menu_row(resume ? saved : play, count, main_choice, picture.y + picture.h * .615f, title_scale);
+            // Stacked under the logo; a fourth row starts higher so the list still ends above the floor.
+            int action = ui_menu(resume ? saved : play, count, main_choice,
+                                 picture.y + picture.h * (resume ? .585f : .628f), title_scale, 35);
             if (!resume && action >= 1) ++action; // Same actions with or without the New game entry.
             if (action == 0) frontend_characters(Screen::Main, true);
             if (action == 1) frontend_characters(Screen::Main, true, true);
             if (action == 2) frontend_settings(Screen::Main);
             if (action == 3) { SDL_Event quit{}; quit.type = SDL_QUIT; SDL_PushEvent(&quit); }
-            ui_hints(picture.y + picture.h - 38 * title_scale, title_scale,
-                     {{HintIcon::Horizontal, smb3_text("MOVE", "MOVER")}, select_hint});
+            ui_hints(picture.y + picture.h - 38 * title_scale, title_scale, {move_hint, select_hint});
         }
     } else if (drawing_screen == Screen::Pause) {
         const float x = screen.x / 2, y = screen.y / 2;
