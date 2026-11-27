@@ -11,6 +11,9 @@
 #include "pad_choice.h"
 #include "recomp_runtime_ui.h"
 #include "recomp_runtime_ui_internal.h"
+#include "cyc_core.h"
+#include "cyc_host.h"
+#include "window.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,6 +110,39 @@ static bool frame_pad_ids(const CycInputFrame *f, int *ids) {
     return pad_device(f->pad_count) < 0;
 }
 
+// One player's buttons with the pad pad[p] alone, as player 1 of NESRecomp's own evaluation.
+static void eval_player(const CycBindings *b, const CycInputFrame *f, const int *pad, int p, CycInputState *state) {
+    CycBindings alone = *b;
+    alone.source[0] = b->source[p];
+    alone.device[0][0] = '\0';
+    alone.deadzone[0] = b->deadzone[p];
+    memcpy(alone.button[0], b->button[p], sizeof alone.button[0]);
+    memcpy(alone.game_button[0], b->game_button[p], sizeof alone.game_button[0]);
+    for (int other = 1; other < CYC_INPUT_PLAYERS; ++other) alone.source[other] = 0;
+    CycInputFrame own = *f;
+    own.pad_count = pad[p] >= 0;
+    if (pad[p] >= 0) {
+        own.pad_buttons[0] = f->pad_buttons[pad[p]];
+        memcpy(own.pad_axes[0], f->pad_axes[pad[p]], sizeof own.pad_axes[0]);
+        own.pad_guid[0] = f->pad_guid[pad[p]];
+    }
+    cyc_input_eval(&alone, &own, state);
+}
+
+// Player 2 drops in with Select, as in Super Mario Bros. Wonder, on the controller or keys co-op would
+// give them; src/remaster.cpp accepts it in a one-player game. Select does nothing there in SMB3.
+static void watch_join(const CycBindings *b, const CycInputFrame *f, const int *ids) {
+    static bool held = true; // A Select already down at start does not join.
+    if (smb3_coop_enabled()) return;
+    int probe = coop_pad, pad[CYC_INPUT_PLAYERS];
+    smb3_choose_pads(b, f, ids, picked_pad, true, &probe, pad);
+    CycInputState state;
+    eval_player(b, f, pad, 1, &state);
+    const bool select = (state.buttons[0] & 0x20) != 0; // NES order, MSB first: A B Select ...
+    if (select && !held) smb3_coop_join();
+    held = select;
+}
+
 // cyc_sdl.c reads the controllers through here (CMakeLists.txt). NESRecomp's own evaluation keeps
 // the shortcuts of every pad; a player whose pad src/pad_choice.h changes is evaluated alone, as
 // player 1 with only that pad.
@@ -115,26 +151,13 @@ void smb3_input_eval(const CycBindings *b, const CycInputFrame *f, CycInputState
     int ids[CYC_INPUT_MAX_PADS], pad[CYC_INPUT_PLAYERS];
     // Until NESRecomp reopens its pads after a change, its own choice stands.
     if (!frame_pad_ids(f, ids)) { memcpy(pad_in_use, out->player_pad, sizeof pad_in_use); return; }
+    watch_join(b, f, ids);
     smb3_choose_pads(b, f, ids, picked_pad, smb3_coop_enabled(), &coop_pad, pad);
     memcpy(pad_in_use, pad, sizeof pad_in_use);
     if (!memcmp(pad, out->player_pad, sizeof pad)) return;
     for (int p = 0; p < CYC_INPUT_PLAYERS; ++p) {
-        CycBindings alone = *b;
-        alone.source[0] = b->source[p];
-        alone.device[0][0] = '\0';
-        alone.deadzone[0] = b->deadzone[p];
-        memcpy(alone.button[0], b->button[p], sizeof alone.button[0]);
-        memcpy(alone.game_button[0], b->game_button[p], sizeof alone.game_button[0]);
-        for (int other = 1; other < CYC_INPUT_PLAYERS; ++other) alone.source[other] = 0;
-        CycInputFrame own = *f;
-        own.pad_count = pad[p] >= 0;
-        if (pad[p] >= 0) {
-            own.pad_buttons[0] = f->pad_buttons[pad[p]];
-            memcpy(own.pad_axes[0], f->pad_axes[pad[p]], sizeof own.pad_axes[0]);
-            own.pad_guid[0] = f->pad_guid[pad[p]];
-        }
         CycInputState state;
-        cyc_input_eval(&alone, &own, &state);
+        eval_player(b, f, pad, p, &state);
         out->buttons[p] = state.buttons[0];
         out->game_buttons[p] = state.game_buttons[0];
         out->player_pad[p] = pad[p];
@@ -242,5 +265,28 @@ void smb3_ui_bind_label(int player, int button, int gamepad, char *out, size_t s
     if (gamepad ? !binding.pad : !binding.key) return;
     if (gamepad) binding.key = 0; else binding.pad = 0;
     cyc_binding_hint(&binding, out, size);
+}
+
+// NESRecomp paces the window at the NES's 60.0988 frames a second. A 60 Hz VSync display shows
+// pictures a little less often, so every 10 seconds the window falls a frame behind and drops
+// pictures to catch up: a stutter. As in RetroArch, the machine runs at the display's rate instead
+// (0.16% slower at 60 Hz) and its sound is sampled that much faster, so the sound keeps pace too.
+// shortcut: chosen once at start from VSync and SDL 2's whole-hertz refresh; measure the real
+// refresh if a display stutters every few minutes.
+static double display_frame_rate; // 0: the NES's own rate
+bool smb3_ui_init(SDL_Window *window, SDL_Renderer *renderer, const CycUiHost *host) {
+    SDL_RendererInfo info;
+    SDL_DisplayMode mode;
+    if (renderer && !SDL_GetRendererInfo(renderer, &info) && (info.flags & SDL_RENDERER_PRESENTVSYNC) &&
+        !SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(window), &mode))
+        display_frame_rate = smb3_display_frame_rate(mode.refresh_rate, 1.0 / cyc_host_frame_seconds());
+    return cyc_ui_init(window, renderer, host);
+}
+double smb3_frame_seconds(void) {
+    return display_frame_rate ? 1.0 / display_frame_rate : cyc_host_frame_seconds();
+}
+bool smb3_audio_enable(int sample_rate) {
+    if (display_frame_rate) sample_rate = (int)(sample_rate / (display_frame_rate * cyc_host_frame_seconds()) + 0.5);
+    return cyc_audio_enable(sample_rate);
 }
 #endif

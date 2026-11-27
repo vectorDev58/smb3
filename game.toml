@@ -129,3 +129,23 @@ bytes = "A5 ED C9 06 F0 04 C9 02"
 id = "smb3.coop-special-done"
 addr = 0xAF20
 bytes = "CA 10 F8 60 BD C6 7F F0"
+
+[[mod_function_hook]]
+id = "smb3.coop-block-flower"
+addr = 0xB7F5
+bytes = "F0 02 A0 02 60"
+
+[[mod_function_hook]]
+id = "smb3.coop-block-leaf"
+addr = 0xB803
+bytes = "F0 02 A0 03 60"
+
+[[mod_function_hook]]
+id = "smb3.coop-take-flower"
+addr = 0xA9FB
+bytes = "D0 08 AC 86 05 D0 03"
+
+[[mod_function_hook]]
+id = "smb3.coop-take-leaf"
+addr = 0xAC2D
+bytes = "D0 08 AD 86 05 D0 03"

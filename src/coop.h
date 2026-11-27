@@ -20,11 +20,13 @@
 
 namespace smb3 {
 // Per-player RAM from Southbird's disassembly. Pad_Holding and Pad_Input come first.
+// Player_Bounce, Player_BounceDir and Player_BounceObj ($57C-$57E) stay shared: they hand a bumped
+// block to the object that bounces it and releases its item, whoever hit it.
 inline constexpr uint16_t CoopRam[] = {
     0x17, 0x18, 0x75, 0x87, 0x90, 0xa2, 0xab, 0xb4, 0xbd, 0xcf, 0xd8, 0xe6, 0xe7, 0xe8, 0xec, 0xed, 0xee, 0xef,
     0xf0, 0xf1, 0x3dd, 0x41f, 0x420, 0x511, 0x512, 0x513, 0x515, 0x517, 0x544, 0x545, 0x546, 0x54f, 0x550,
     0x551, 0x552, 0x553, 0x554, 0x555, 0x556, 0x557, 0x558, 0x559, 0x569, 0x56b, 0x56c, 0x56d, 0x56e, 0x56f,
-    0x570, 0x573, 0x574, 0x575, 0x576, 0x577, 0x578, 0x579, 0x57a, 0x57b, 0x57c, 0x57d, 0x57e, 0x583, 0x585,
+    0x570, 0x573, 0x574, 0x575, 0x576, 0x577, 0x578, 0x579, 0x57a, 0x57b, 0x583, 0x585,
     0x587, 0x588, 0x589, 0x58a, 0x58b, 0x58c, 0x58d, 0x6a4, 0x6a5, 0x6b6, 0x74d, 0x75f};
 constexpr size_t CoopRamSize = sizeof CoopRam / sizeof CoopRam[0];
 constexpr int coop_index(uint16_t address) {
@@ -52,10 +54,13 @@ struct CoopState { // Saved in save states as raw bytes: keep it trivially copya
     uint8_t saved_event = 0, transitions = 0;
     std::array<uint8_t, 3> saved_palette{};
     int scroll_x = 0, scroll_y = 0;
+    uint8_t pan = 0; // The camera is on its way to a new lead.
+    uint8_t starting_copy = 0xff; // Object slot whose turn starts a second power-up
+    std::array<uint8_t, 8> owner{}; // Per object slot: player 1 or 2, who alone can take that power-up
 };
 inline CoopState coop;
 // tools/verify_widescreen.py reads these from save states.
-static_assert(offsetof(CoopState, present) == 1 && offsetof(CoopState, partner_is_p1) == 2 &&
+static_assert(offsetof(CoopState, enabled) == 0 && offsetof(CoopState, present) == 1 && offsetof(CoopState, partner_is_p1) == 2 &&
               offsetof(CoopState, bubble) == 3 && offsetof(CoopState, buttons) == 4 &&
               offsetof(CoopState, ghost) == 10 && offsetof(CoopState, partner) == 21 && CoopRam[X] == 0x90,
               "Update coop_state()");
@@ -115,6 +120,7 @@ inline void coop_exchange_sprites(const uint8_t *ram) {
 
 inline void coop_promote(const uint8_t *ram) {
     coop.partner_is_p1 ^= 1;
+    coop.pan = 1;
     coop_exchange_sprites(ram);
     coop_queue_palette(ram);
 }
@@ -274,6 +280,7 @@ inline int coop_player_done(const uint8_t *ram) {
         const bool palette_changed = !std::equal(coop.saved_palette.begin(), coop.saved_palette.end(), ram + 0x7d2);
         if (lead_now) { // Keep the partner in RAM; the old lead becomes the partner.
             coop.partner_is_p1 ^= 1;
+            coop.pan = 1;
             coop.sprites = coop.saved_sprites;
             coop.banks = coop.saved_banks;
             coop_queue_palette(ram);
@@ -309,8 +316,35 @@ inline int coop_throw(const uint8_t *ram) {
     return 0;
 }
 
-// Player_DoScrolling: the camera and its screen edges follow the lead only.
-inline int coop_scrolling() { return coop.pass == CoopPass::Partner; }
+// Player_DoScrolling: the camera and its screen edges follow the lead only. A new lead can stand
+// beyond the ROM's reach, as far as the widened screen's other side, so the camera pans there,
+// then the ROM resumes. Scroll_Update draws the next 8-pixel column only at some fine scroll
+// values: at 4 pixels a frame, about the lead's top speed, it never misses one.
+inline int coop_scrolling(const uint8_t *ram) {
+    if (coop.pass == CoopPass::Partner) return 1;
+    const uint8_t autoscroll = ram[0x5fc]; // Level_AScrlConfig
+    // Vertical rooms, Big Question Block rooms (LevelJctBQ_Flag) and autoscrollers keep their own camera.
+    if (!coop.pan || !coop_in_level(ram) || ram[0x3ef] || cyc_mod_peek(0x7eb6) || (autoscroll && !(autoscroll & 0x80))) {
+        coop.pan = 0;
+        return 0;
+    }
+    const int camera = ram[0x12] * 256 + ram[0xfd], lead = ram[0x75] * 256 + ram[0x90];
+    // Where the ROM keeps the camera: the lead between $70 and $80 from its left edge.
+    const int target = std::clamp(lead - std::clamp(lead - camera, 0x70, 0x80), 0, ram[0x22] * 256);
+    if (std::abs(target - camera) <= 4) {
+        coop.pan = 0;
+        return 0;
+    }
+    const int step = std::clamp(target - camera, -4, 4), moved = camera + step;
+    cyc_mod_poke(0x12, uint8_t(moved >> 8)); // Horz_Scroll_Hi
+    cyc_mod_poke(0xfd, uint8_t(moved));      // Horz_Scroll
+    cyc_mod_poke(0x780, uint8_t(step));      // Level_ScrollDiffH
+    cyc_mod_poke(0x5b, step < 0);            // Scroll_LastDir
+    CycModRegs registers{};
+    cyc_mod_regs(&registers);
+    cyc_mod_call_commit(0xB208, &registers); // The vertical scrolling that ends Player_DoScrolling
+    return 1;
+}
 
 // Player_Die: the partner, or a lead whose partner lives, is not the end of the level.
 inline int coop_die(const uint8_t *ram) {
@@ -322,23 +356,76 @@ inline int coop_die(const uint8_t *ram) {
     return 1;
 }
 
-// Before and after each object's turn: the nearer player is the one in RAM.
-inline void coop_meet_nearer(const uint8_t *ram, int x, int y) {
+// Player 1 or 2: the partner, and whoever is in RAM during an object's turn.
+inline uint8_t coop_partner_player() { return coop.partner_is_p1 ? 1 : 2; }
+inline uint8_t coop_player_in_ram() { return coop.swapped ? coop_partner_player() : 3 - coop_partner_player(); }
+
+// Before and after each object's turn: the nearer player is the one in RAM, unless the object
+// is a power-up kept for one of them.
+inline void coop_meet_nearer(const uint8_t *ram, int x, int y, uint8_t owner = 0) {
     if (coop.swapped) { coop_exchange(); coop.swapped = 0; }
     if (!coop_in_level(ram) || coop.pass != CoopPass::Idle || !coop_partner_active()) return;
     const int lead = std::abs(x - (ram[0x75] * 256 + ram[0x90])) + std::abs(y - (int8_t(ram[0x87]) * 256 + ram[0xa2]));
     const int partner = std::abs(x - coop_x(coop.partner.data())) + std::abs(y - coop_y(coop.partner.data()));
-    if (partner >= lead) return;
+    if (owner ? owner != coop_partner_player() : partner >= lead) return;
     coop.transitions = coop_transitions(ram);
     coop_exchange();
     coop_partner_pads(false);
     coop.swapped = 1;
 }
 
+// Starman or super suit, mushroom, fire flower and leaf: the items a block or a Big ? block gives.
+inline bool coop_power_up(uint8_t id) { return id == 0x0c || id == 0x0d || id == 0x19 || id == 0x1e; }
+
+// As in Super Mario Bros. Wonder, a power-up comes out once for each player: the ROM's, always in
+// slot 5, for the player who hit the block (the nearer one), and a copy in a free slot for the other.
+inline void coop_share_power_up(const uint8_t *ram) {
+    coop.owner[5] = coop_player_in_ram();
+    for (int slot = 4; slot >= 0; --slot) {
+        if (ram[0x661 + slot]) continue;
+        // Level_ObjectID, Objects_XHi, Objects_X, Objects_YHi and Objects_Y, as the bouncing block sets them.
+        for (const uint16_t base : {0x671, 0x76, 0x91, 0x88, 0xa3}) cyc_mod_poke(base + slot, ram[base + 5]);
+        cyc_mod_poke(0x659 + slot, 0xff); // Objects_SpawnIdx: no level object to restore when it goes
+        cyc_mod_poke(0x661 + slot, 1);    // Objects_State: initialize, later this frame
+        coop.owner[slot] = 3 - coop.owner[5];
+        return;
+    }
+}
+
+// Right after the copy's initialization: it leaves the block the other way, so the two part.
+inline void coop_part_power_ups(const uint8_t *ram, int slot) {
+    const uint8_t away = !coop.partner[coop_index(0x58d)]; // Player_MushFall of the player who hit the block
+    cyc_mod_poke(0x58d, away);
+    if (ram[0xbe + slot]) cyc_mod_poke(0xbe + slot, away ? 0x10 : 0xf0); // A star already moves, as PowerUp_BounceXVel sets it
+    if (ram[0x671 + slot] == 0x1e) cyc_mod_poke(0x691 + slot, 1);       // A leaf sways the other way first (Objects_Var2)
+}
+
+// For a small player the ROM makes a flower or leaf a mushroom twice: LATP_Flower and LATP_Leaf release
+// a mushroom from the block, and ObjHit_FireFlower and ObjHit_SuperLeaf give a flower or leaf a
+// mushroom's growth. Each branches on LDA <Player_Suit; clearing Z takes the big player's way. In co-op
+// a block keeps its item when either player is big, and whoever takes a flower or leaf gets its suit,
+// as the ROM's own Big ? block items give it.
+constexpr uint16_t CoopBlockFlower = 0xB7F5, CoopBlockLeaf = 0xB803, CoopTakeFlower = 0xA9FB, CoopTakeLeaf = 0xAC2D;
+inline int coop_skip_mushroom(const uint8_t *ram, uint16_t site) {
+    const bool block = site == CoopBlockFlower || site == CoopBlockLeaf;
+    if (!coop_in_level(ram) || (block && !(coop.present && coop.partner[Suit]))) return 0; // partner: the other player
+    CycModRegs registers{};
+    cyc_mod_regs(&registers);
+    registers.p &= ~0x02; // Z
+    cyc_mod_set_regs(&registers);
+    return 0;
+}
+
 inline void coop_object_begin(const uint8_t *ram) {
     const int slot = ram[0xcd]; // SlotIndexBackup
-    if (slot < 8 && ram[0x661 + slot])
-        coop_meet_nearer(ram, ram[0x76 + slot] * 256 + ram[0x91 + slot], int8_t(ram[0x88 + slot]) * 256 + ram[0xa3 + slot]);
+    if (slot >= 8) return;
+    const uint8_t state = ram[0x661 + slot], id = ram[0x671 + slot];
+    if (!state || !coop_power_up(id) || (slot == 5 && state == 1)) coop.owner[slot] = 0;
+    if (!state) return;
+    coop_meet_nearer(ram, ram[0x76 + slot] * 256 + ram[0x91 + slot], int8_t(ram[0x88 + slot]) * 256 + ram[0xa3 + slot],
+                     coop.owner[slot]);
+    if (slot == 5 && state == 1 && coop_power_up(id) && coop_partner_active()) coop_share_power_up(ram);
+    coop.starting_copy = state == 1 && coop.owner[slot] && slot != 5 ? slot : 0xff;
 }
 
 // SpecialObj_UpdateAndDraw: hammers, fireballs, boomerangs and cannonballs hurt either player.
@@ -355,6 +442,8 @@ inline void coop_special_begin(const uint8_t *ram) {
 }
 
 inline void coop_object_end(const uint8_t *ram) {
+    if (coop.starting_copy < 8) coop_part_power_ups(ram, coop.starting_copy);
+    coop.starting_copy = 0xff;
     if (!coop.swapped) return;
     coop.swapped = 0;
     const bool died = coop.partner_died;
@@ -378,7 +467,7 @@ inline int coop_save(uint8_t *buffer, int capacity) {
     return int(sizeof coop);
 }
 
-// The session decides whether co-op is on (the menu, Continue or --coop); a state brings the partner.
+// The session decides whether co-op is on (the menu, player 2's Select or --coop); a state brings the partner.
 // One from before co-op, or from another version of it, starts the partner afresh.
 inline int coop_load(const uint8_t *buffer, int length) {
     const uint8_t enabled = coop.enabled;

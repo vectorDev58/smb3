@@ -27,9 +27,10 @@ def coop_state(path):
     """The co-op block of a save state; offsets checked by static_assert in src/coop.h."""
     data = path.read_bytes()
     at = data.index(b"smb3.coop\0") + 64
-    partner = at + 21  # CoopRam order: Player_XHi, then Player_X two bytes later
-    return dict(present=data[at + 1], partner_is_p1=data[at + 2], bubble=data[at + 3], buttons=data[at + 4],
-                ghost=struct.unpack_from("<H", data, at + 10)[0], x=data[partner + 2] * 256 + data[partner + 4])
+    partner = at + 21  # CoopRam order: Player_XHi, then Player_X two bytes later; Player_Suit at 15
+    return dict(enabled=data[at], present=data[at + 1], partner_is_p1=data[at + 2], bubble=data[at + 3], buttons=data[at + 4],
+                ghost=struct.unpack_from("<H", data, at + 10)[0], x=data[partner + 2] * 256 + data[partner + 4],
+                suit=data[partner + 15])
 
 
 def projectile_metadata(cart, slot, replacement=None):
@@ -236,6 +237,41 @@ def main():
     assert not shot[840]["ghost"] and shot[899]["ghost"] and not shot[899]["partner_is_p1"], "El fuego de la piraña no alcanza al compañero"
     print("Cooperativo como en Wonder: fantasma revivido al tocarlo, burbuja de vuelta y fuego enemigo para ambos.", flush=True)
 
+    # The partner, small, hits a ? block made a flower block, with the Goombas removed: the block
+    # bounces, and a mushroom comes out for each player, each taking its own.
+    frames = fixture("coop-block", "450 POKE 616C 60\n450 POKE 0663 00\n450 POKE 0665 00\n"
+                     "450 2:RIGHT\n560 2:RIGHT+A\n580 2:NONE\n", frames=800,
+                     extra=("--coop", "--save-state", f"799:{out / 'coop-block.cycstate'}"))
+    assert frames[-1][2][0x16c] == 0x5f, "El bloque golpeado por el compañero desapareció"
+    assert any(sum(ram[0x661 + i] and ram[0x671 + i] == 0x0d for i in range(6)) == 2 for _, ram, _ in frames), \
+        "No salió un hongo para cada jugador"
+    assert frames[-1][1][0xed] == 1 and coop_state(out / "coop-block.cycstate")["suit"] == 1, \
+        "Cada jugador no recogió su hongo"
+    # Player 1 is big: the small partner's hit on a leaf block gives a leaf for each, and the partner's
+    # own leaf makes it Raccoon straight away. Alone, a small player's flower still only makes it Super.
+    frames = fixture("coop-leaf", "450 POKE 616C 61\n450 POKE 00ED 01\n450 POKE 0663 00\n450 POKE 0665 00\n"
+                     "450 2:RIGHT\n560 2:RIGHT+A\n580 2:NONE\n", frames=900,
+                     extra=("--coop", "--save-state", f"899:{out / 'coop-leaf.cycstate'}"))
+    assert any(sum(ram[0x661 + i] and ram[0x671 + i] == 0x1e for i in range(6)) == 2 for _, ram, _ in frames), \
+        "No salió una hoja para cada jugador"
+    assert coop_state(out / "coop-leaf.cycstate")["suit"] == 3, "El compañero pequeño no pasó a mapache con su hoja"
+    flower = ("450 POKE 0661-0668 00\n450 2:RIGHT\n480 2:NONE\n480 POKE 0671 19\n480 POKE 0659 FF\n480 POKE 0076 00\n"
+              "480 POKE 0091 18\n480 POKE 0088 00\n480 POKE 00A3 80\n480 POKE 0661 02\n")
+    for name, extra, suit in (("coop-flower", ("--coop",), 2), ("solo-flower", (), 1)):
+        suits = {ram[0xed] for _, ram, _ in fixture(name, flower, frames=560, extra=extra)}
+        assert suits == {0, suit}, f"Flor de un jugador pequeño en {name}: trajes {sorted(suits)}"
+    # Player 1 falls at the start while the partner stands near the widened screen's far side:
+    # the camera pans to the new lead without skipping the columns SMB3 draws as it scrolls.
+    pan = fixture("coop-camera", "450 POKE 0661-0668 00\n450 HOLD 7B10-7B3F 80\n450 1:NONE\n450 2:RIGHT+B\n"
+                  "580 2:NONE\n640 POKE 0671 72\n640 POKE 0659 FF\n640 POKE 0076 00\n640 POKE 0091 20\n"
+                  "640 POKE 0088 01\n640 POKE 00A3 80\n640 POKE 0661 02\n", frames=720, extra=("--coop",))
+    cameras = [ram[0x12] * 256 + ram[0xfd] for _, ram, _ in pan]
+    final = pan[-1][1][0x75] * 256 + pan[-1][1][0x90]
+    assert max(b - a for a, b in zip(cameras, cameras[1:])) == 4 and final - cameras[-1] == 128, \
+        "La cámara salta o no llega al nuevo líder"
+    print("Cooperativo: el compañero golpea bloques, un power-up para cada uno, flor u hoja si alguno es grande, "
+          "y la cámara viaja al nuevo líder.", flush=True)
+
     for number, map_y, tileset in ((3, 0x20, 1), (4, 0x40, 4)):
         controls = out / f"level-{number}.txt"
         controls.write_text(f"12 START\n13 NONE\n68 START\n69 NONE\n328 POKE 0079 A0\n"
@@ -261,7 +297,8 @@ def main():
                   native_interpreter_match=True, save_load_continuation=True, collision_distance_guard=True,
                   cannons=2, player_projectiles_cross_native_edge=True, chest_flags_preserved=True,
                   shell_collision_and_bricks=True, coop_partner_and_takeover=True,
-                  coop_ghost_bubble_and_projectiles=True, visible_actor_retained=True, fallen_actor_waits_for_reentry=True,
+                  coop_ghost_bubble_and_projectiles=True, coop_block_power_up_each=True, coop_big_power_up_for_small=True, coop_camera_pan=True,
+                  visible_actor_retained=True, fallen_actor_waits_for_reentry=True,
                   levels_1_3_and_1_4_execution_match=True, autoscroll_boundary_expanded=True,
                   complete_campaign_playthrough=False,
                   executable_sha256=hashlib.sha256(binary.read_bytes()).hexdigest())

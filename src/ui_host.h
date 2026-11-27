@@ -17,6 +17,7 @@ int smb3_ui_pad_in_use(int player);
 int smb3_ui_chosen_pad(int player);
 void smb3_ui_choose_pad(int player, int pad);
 bool smb3_coop_enabled(void); // src/remaster.cpp
+void smb3_coop_join(void); // src/remaster.cpp
 const char *smb3_ui_status(void);
 bool smb3_ui_states_available(void);
 bool smb3_ui_restore(const uint8_t *data, size_t size, char *error, size_t capacity);

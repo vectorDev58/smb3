@@ -852,7 +852,7 @@ void ui_characters(float scale) {
         } else if (character_choice.new_game && frontend.started && !restart_campaign()) {
             character_error = smb3_text("Could not start a new game.", "No se pudo empezar una partida nueva.");
         } else {
-            // Co-op starts the ROM's one-player game; controller 2 joins in every level.
+            // Co-op starts the ROM's one-player game with player 2 joined (a one-player game lets them drop in with Select).
             smb3::coop = {};
             smb3::coop.enabled = character_choice.partner_step;
             frontend.players = character_choice.players == 3 ? 1 : character_choice.players;

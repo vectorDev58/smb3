@@ -28,11 +28,15 @@ cd smb3-pc-linux-x86_64
 
 SMB3's own 2-player mode takes turns, and only the battle mini-game is simultaneous. Choose **Co-op** in character selection to play every level together, then choose player 2's character: any of the four except player 1's, Toad and Toadette included when the resource packs are installed. Each character keeps their own art, poses, and suit colors. Player 1 gets the first controller and player 2 the second. With only one controller and player 1 on **Keyboard + controller**, player 1 plays on the keyboard and player 2 on that controller. To change who plays on what, see **Settings → Controls** below.
 
+Player 2 can also drop in at any time during a one-player game, as in Wonder: they press **Select** on their controller (or their Select key) and appear beside player 1. Continuing a co-op save works the same way: player 2 is not there until they press Select, so nobody drifts along in a bubble without a controller.
+
 It plays like Super Mario Bros. Wonder's co-op. Both players use the game's own rules for running, jumping, power-ups, blocks, enemies, shells, and fireballs, and they pass through each other. The camera follows the leader, who wears a small crown. Enemies and their fireballs, hammers, and boomerangs can hit either player.
 
 - A defeated player becomes a ghost for five seconds. If the leader touches the ghost, that player comes back right there.
 - Otherwise, and after falling into a pit, the player floats back to the leader in a bubble. A player the screen leaves behind also returns in a bubble.
-- If the leader is defeated while the other player is still in the game, the other player becomes the leader. The level only restarts, and a life is only lost, when both are down.
+- If the leader is defeated while the other player is still in the game, the other player becomes the leader and the camera glides over to them. The level only restarts, and a life is only lost, when both are down.
+- A block's power-up comes out twice: one for the player who hit the block and one for the other player, and each player can only take their own. 1-Ups and vines come out once.
+- If either player is already big, a block gives its fire flower or leaf instead of a mushroom, and a small player who takes it gets that power straight away.
 - If the leader takes a pipe or a door, the other player follows. If the other player takes it or reaches the goal, that player becomes the leader.
 
 The world map, items, lives, and score are shared.
@@ -84,7 +88,7 @@ Toad and Toadette appear in character selection when the first two packs are ins
 | Take a screenshot | F12 | Configurable |
 | Fast-forward while held | Tab | Right trigger |
 
-**Settings → Display** controls the aspect mode and window scale. **Settings → Controls** lets you remap the controls for each player, choose who plays on the keyboard (its input row), and choose each player's controller in the **Controller** row: **Auto** or one of those connected, which rumbles when chosen. Giving player 2 the controller player 1 had swaps them. A player moved to the keyboard without keys of their own takes the other player's keys. **Settings → Practice** opens the tools for level selection, powers, and lives.
+**Settings → Display** controls the aspect mode and window scale. With VSync on a 60 Hz or 120 Hz display, the game runs at the display's rate, 0.16% slower than an NES, as RetroArch does: otherwise the picture would skip every 10 seconds to catch up. **Settings → Controls** lets you remap the controls for each player, choose who plays on the keyboard (its input row), and choose each player's controller in the **Controller** row: **Auto** or one of those connected, which rumbles when chosen. Giving player 2 the controller player 1 had swaps them. A player moved to the keyboard without keys of their own takes the other player's keys. **Settings → Practice** opens the tools for level selection, powers, and lives.
 
 **Settings → Remastered** works like the visual options of Super Mario Bros. Remastered. **Visual style** switches between the remastered art and the original NES colors and tiles. Both styles keep the widescreen view, the menus, and the save. Shadows, background particles, parallax, the HUD layout (split panels or the NES status bar), and the star effect (classic or rainbow) each have their own switch.
 

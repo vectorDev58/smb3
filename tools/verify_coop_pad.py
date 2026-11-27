@@ -35,7 +35,7 @@ def main():
         environment = dict(os.environ, SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="0x0000/0x0000")
         with open(work / "output.txt", "w") as log:
             process = subprocess.Popen([str(game), str(rom), "--hidden", "--tcp", str(port), "--config", str(config),
-                                        "--skip-selection", "--coop", "--partner", "luigi", "--no-save"],
+                                        "--skip-selection", "--partner", "luigi", "--no-save"],
                                        cwd=work, env=environment, stdout=log, stderr=subprocess.STDOUT)
         try:
             guid = check(work, port)
@@ -50,7 +50,7 @@ def main():
         assert f"Player1Device = {guid}\n" in saved, "config.ini no guardó el mando elegido en Controles"
         assert "Player2Source = 1\n" in saved and "[Keyboard.Player2]\na = Z\n" in saved, \
             "El jugador 2 pasado al teclado no recibió teclas"
-    print("Cooperativo con teclado y un mando: el mando mueve al jugador 2, no al 1, en el mapa y en 1-1; "
+    print("Cooperativo con teclado y un mando: en una partida de un jugador, Select en el mando une al jugador 2; el mando mueve al jugador 2, no al 1, en el mapa y en 1-1; "
           "elegido en Controles, pasa al jugador 1 y queda en config.ini; el jugador 2 en teclado recibe teclas.")
 
 
@@ -107,6 +107,11 @@ def check(work, port):
     hold("pad", "dpdown", 1)  # Attaches the virtual controller.
     wait(30)
     assert len(command(cmd="state")["pads"]) == 1, "Debe haber un solo mando"
+    # A one-player game: player 2 drops in with Select on the controller, as in Wonder.
+    assert not partner()["enabled"], "El jugador 2 ya estaba en una partida de un jugador"
+    hold("pad", "back", 3)
+    wait(30)
+    assert partner()["enabled"], "Select en el mando no unió al jugador 2"
     map_x = ram(0x79)  # World_Map_X
     hold("pad", "dpright", 40)
     wait(80)
@@ -142,7 +147,8 @@ def check(work, port):
 
     # Pause, Settings, Controls (fifth row), the controller row: controller 1 for player 1. Then
     # the player 2 tab and its input, from controller to none to keyboard. Backspace goes back to
-    # Settings, the pause menu and the game.
+    # Settings, the pause menu and the game (a TCP-held Escape would also reach NESRecomp's menu
+    # shortcut, which a real key does not: src/window.cpp).
     for key in ("Escape", "Down", "Return", "Down", "Down", "Down", "Down", "Return", "Up", "Right",
                 "Up", "Up", "Right", "Down", "Right", "Right", "Backspace", "Backspace", "Backspace"):
         press(key)

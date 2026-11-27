@@ -213,10 +213,11 @@ int actor_draw_end(uint16_t) {
 }
 int coop_player_hook(uint16_t) { return smb3::coop_player_update(cyc_cpu_ram()); }
 int coop_player_done_hook(uint16_t) { return smb3::coop_player_done(cyc_cpu_ram()); }
-int coop_scrolling_hook(uint16_t) { return smb3::coop_scrolling(); }
+int coop_scrolling_hook(uint16_t) { return smb3::coop_scrolling(cyc_cpu_ram()); }
 int coop_die_hook(uint16_t) { return smb3::coop_die(cyc_cpu_ram()); }
 int coop_throw_hook(uint16_t) { return smb3::coop_throw(cyc_cpu_ram()); }
 int coop_special_done_hook(uint16_t) { smb3::coop_object_end(cyc_cpu_ram()); return 0; }
+int coop_skip_mushroom_hook(uint16_t site) { return smb3::coop_skip_mushroom(cyc_cpu_ram(), site); }
 int actor_keep_visible(uint16_t) { return smb3::keep_visible_actor(cyc_cpu_ram(), true); }
 int remember_collision_box(uint16_t) { return smb3::remember_collision_box(cyc_cpu_ram(), true); }
 int intersect_world_boxes(uint16_t) { return smb3::intersect_world_boxes(cyc_cpu_ram(), true); }
@@ -249,6 +250,10 @@ const int ActorHooksRegistered[] = {
     nes_mod_register_function_entry_plugin("smb3.coop-die", 0xDA7C, coop_die_hook),
     nes_mod_register_function_entry_plugin("smb3.coop-throw", 0xA247, coop_throw_hook),
     nes_mod_register_function_entry_plugin("smb3.coop-special-done", 0xAF20, coop_special_done_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-block-flower", smb3::CoopBlockFlower, coop_skip_mushroom_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-block-leaf", smb3::CoopBlockLeaf, coop_skip_mushroom_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-take-flower", smb3::CoopTakeFlower, coop_skip_mushroom_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-take-leaf", smb3::CoopTakeLeaf, coop_skip_mushroom_hook),
     nes_mod_register_savestate_hook("smb3.coop", smb3::coop_save, smb3::coop_load),
 #ifdef CYC_WITH_RECOMP_UI
     nes_mod_register_function_entry_plugin("smb3.practice-world", 0x84A0, practice_start_world),
@@ -1904,7 +1909,8 @@ void power_on(void *) {
     nes_mod_set_function_hook_enabled("smb3.wide-player-boundary", 1);
     nes_mod_set_function_hook_enabled("smb3.wide-autoscroll", 1);
     for (const char *id : {"smb3.coop-player", "smb3.coop-player-done", "smb3.coop-scrolling", "smb3.coop-die",
-                           "smb3.coop-throw", "smb3.coop-special-done"})
+                           "smb3.coop-throw", "smb3.coop-special-done", "smb3.coop-block-flower", "smb3.coop-block-leaf",
+                           "smb3.coop-take-flower", "smb3.coop-take-leaf"})
         nes_mod_set_function_hook_enabled(id, 1);
     smb3::extra_sprites = {};
     smb3::displayed_extra_sprites = {};
@@ -2186,7 +2192,7 @@ bool load_campaign_save() {
     }
     practice_campaign.data.reset();
     cyc_state_ui_reset();
-    smb3::coop.enabled = campaign_save_players == 3;
+    smb3::coop.enabled = 0; // Player 2 joins again with Select (smb3_coop_join).
     frontend.players = campaign_save_players == 3 ? 1 : campaign_save_players;
     return true;
 }
@@ -2309,6 +2315,14 @@ extern "C" bool smb3_ui_spanish(void) { return spanish_ui; }
 extern "C" bool smb3_coop_enabled(void) { return smb3::coop.enabled; }
 
 #ifdef CYC_WITH_RECOMP_UI
+// Player 2 pressed Select (src/ui_host.c): in a one-player game they join beside player 1, who keeps the
+// lead, as in Super Mario Bros. Wonder. SMB3's own two-player game takes turns, so it stays as it is.
+extern "C" void smb3_coop_join(void) {
+    if (frontend.players != 1 || (frontend.active && frontend.screen != smb3::Screen::Playing)) return;
+    smb3::coop.enabled = 1;
+    smb3::coop.partner_is_p1 = 0;
+}
+
 const char *smb3_launcher_i18n_text(const char *english) { return english ? ui_label(english) : ""; }
 
 extern "C" void smb3_ui_prepare_fonts(void) { frontend_fonts(); }

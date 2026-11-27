@@ -56,4 +56,7 @@ int main() {
         SDL_FreeSurface(surface);
     }
     SDL_Quit();
+    // The NES's 60.0988 Hz follows a 60 or 120 Hz display; 59, 75 and 144 Hz are too far off.
+    assert(smb3_display_frame_rate(60, 60.0988) == 60 && smb3_display_frame_rate(120, 60.0988) == 60);
+    for (const int refresh : {0, 50, 59, 75, 144}) assert(smb3_display_frame_rate(refresh, 60.0988) == 0);
 }
