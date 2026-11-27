@@ -84,6 +84,9 @@ if(NOT NESRECOMP_HEADLESS)
     if(NESRECOMP_CYC_RECOMP_UI_ROOT)
         set_property(SOURCE "${NESRECOMP_CYC_RECOMP_UI_ROOT}/src/common/backends/imgui/launcher_imgui.cpp" APPEND PROPERTY
             COMPILE_DEFINITIONS launcher_i18n_text=smb3_launcher_i18n_text)
+        # src/ui_host.c gives each player the controller chosen in Controls (src/pad_choice.h).
+        set_property(SOURCE "${NESRECOMP_ROOT}/runner/cyc/cyc_sdl.c" APPEND PROPERTY
+            COMPILE_DEFINITIONS cyc_input_eval=smb3_input_eval)
     endif()
     set_property(SOURCE "${NESRECOMP_ROOT}/runner/cyc/cyc_ui_imgui.cpp" APPEND PROPERTY
         COMPILE_DEFINITIONS recomp_runtime_ui_render_imgui=smb3_render_runtime_menu cyc_state_ui_render=smb3_render_state_menu)
@@ -108,7 +111,7 @@ endif()
 
 enable_testing()
 add_executable(render_math tests/render_math.cpp)
-target_include_directories(render_math PRIVATE src)
+target_include_directories(render_math PRIVATE src "${NESRECOMP_ROOT}/runner/cyc")
 target_compile_features(render_math PRIVATE cxx_std_17)
 if(MSVC)
     target_compile_options(render_math PRIVATE /UNDEBUG)

@@ -5,7 +5,9 @@
 #include "menu_art.h"
 #include "practice.h"
 #include "resource_packs.h"
+#include "pad_choice.h"
 #include <cassert>
+#include <cstring>
 
 static void check_practice_levels() {
     assert(smb3::practice_levels({})[0].empty());
@@ -92,7 +94,44 @@ static void check_widescreen_effects() {
     assert((green >> 8 & 255) > 200 && (green & 0xff00ff) == 0);
 }
 
+static void check_pad_choice() {
+    CycBindings bind{};
+    bind.source[0] = 1; // Keyboard + controller
+    bind.source[1] = 2; // Controller
+    CycInputFrame frame{};
+    frame.pad_count = 1;
+    frame.pad_guid[0] = frame.pad_guid[1] = "alike";
+    int ids[CYC_INPUT_MAX_PADS] = {10, 11}, picked[CYC_INPUT_PLAYERS] = {-1, -1}, coop_pad = -1, pad[CYC_INPUT_PLAYERS];
+    smb3_choose_pads(&bind, &frame, ids, picked, false, &coop_pad, pad);
+    assert(pad[0] == 0 && pad[1] == -1); // As NESRecomp: the keyboard player 1 also plays on it.
+    smb3_choose_pads(&bind, &frame, ids, picked, true, &coop_pad, pad);
+    assert(pad[0] == -1 && pad[1] == 0 && coop_pad == 10); // Co-op: the lone pad is player 2's.
+    frame.pad_count = 2;
+    ids[0] = 12; ids[1] = 10; // A pad plugged in later comes first in SDL's order.
+    smb3_choose_pads(&bind, &frame, ids, picked, true, &coop_pad, pad);
+    assert(pad[0] == 0 && pad[1] == 1); // Player 2 keeps its pad.
+    smb3_choose_pads(&bind, &frame, ids, picked, false, &coop_pad, pad);
+    assert(pad[0] == 0 && pad[1] == 1 && coop_pad == -1);
+    picked[1] = 12; // Chosen in Controls: player 2 takes the first pad, player 1 the other.
+    smb3_choose_pads(&bind, &frame, ids, picked, false, &coop_pad, pad);
+    assert(pad[0] == 1 && pad[1] == 0);
+    picked[1] = -1; // After a restart only the model is known: two alike pads keep their order.
+    std::strcpy(bind.device[1], "alike");
+    smb3_choose_pads(&bind, &frame, ids, picked, false, &coop_pad, pad);
+    assert(pad[1] == 0 && pad[0] == 1);
+    bind.device[1][0] = '\0';
+    bind.source[0] = 2; // Player 2 on the keyboard: it gets the pad player 1 leaves.
+    bind.source[1] = 1;
+    smb3_choose_pads(&bind, &frame, ids, picked, true, &coop_pad, pad);
+    assert(pad[0] == 0 && pad[1] == 1);
+    bind.source[1] = 0; // No input: no pad, even a chosen one.
+    picked[1] = 10;
+    smb3_choose_pads(&bind, &frame, ids, picked, false, &coop_pad, pad);
+    assert(pad[0] == 0 && pad[1] == -1);
+}
+
 int main() {
+    check_pad_choice();
     check_practice_levels();
     check_resource_packs();
     check_widescreen_effects();

@@ -20,7 +20,9 @@ void frontend_resume() {
     frontend_screen(smb3::Screen::Playing);
 }
 int binding_player = 0, binding_button = -1, binding_pad = 0, controls_player = 0;
-int controls_row = 2, controls_column = 0;
+// Controls rows: player, input source, controller, eight bindings, Back.
+constexpr int ControlsPadRow = 2, ControlsFirstBinding = 3, ControlsBackRow = 11, ControlsRows = 12;
+int controls_row = ControlsFirstBinding, controls_column = 0;
 int practice_row = 0, practice_power = 0, practice_world = 0, practice_level = 0;
 std::string binding_status;
 struct CharacterChoice {
@@ -44,7 +46,7 @@ void frontend_screen(smb3::Screen screen) {
         cyc_render_frame_done();
     }
     if (screen == smb3::Screen::Controls) {
-        controls_row = 2;
+        controls_row = ControlsFirstBinding;
         controls_column = controller_hints ? 1 : 0;
         binding_status.clear();
     }
@@ -513,14 +515,14 @@ void ui_controls(float scale) {
     const float left = (ImGui::GetIO().DisplaySize.x - width) / 2;
     const bool editing = binding_button >= 0;
     const bool enter = !editing && ui_confirm();
-    if (!editing && ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp)) controls_row = (controls_row + 10) % 11;
-    if (!editing && ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown)) controls_row = (controls_row + 1) % 11;
+    if (!editing && ui_pressed(ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp)) controls_row = (controls_row + ControlsRows - 1) % ControlsRows;
+    if (!editing && ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown)) controls_row = (controls_row + 1) % ControlsRows;
     const int direction = editing ? 0 : ui_pressed(ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft) ? -1 :
                           ui_pressed(ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight) ? 1 : 0;
     if (controls_row == 0 && (direction || enter)) controls_player = 1 - controls_player;
-    if (controls_row >= 2 && controls_row <= 9 && direction) controls_column = 1 - controls_column;
-    if (!editing && controls_row >= 2 && controls_row <= 9 && ui_pressed(ImGuiKey_Delete, ImGuiKey_GamepadFaceUp) &&
-        smb3_ui_bind(controls_player, controls_row - 2, controls_column, 0) >= 0)
+    if (controls_row >= ControlsFirstBinding && controls_row < ControlsBackRow && direction) controls_column = 1 - controls_column;
+    if (!editing && controls_row >= ControlsFirstBinding && controls_row < ControlsBackRow && ui_pressed(ImGuiKey_Delete, ImGuiKey_GamepadFaceUp) &&
+        smb3_ui_bind(controls_player, controls_row - ControlsFirstBinding, controls_column, 0) >= 0)
         binding_status = smb3_text("Binding cleared.", "Asignación borrada.");
     for (int player = 0; player < 2; ++player) {
         ImGui::PushID(player);
@@ -545,7 +547,15 @@ void ui_controls(float scale) {
     auto *draw = ImGui::GetForegroundDrawList();
     draw->AddText(ImVec2(left + 48 * scale, 170 * scale), ui_color(MenuGold), smb3_text("ACTION", "ACCIÓN"));
     draw->AddText(ImVec2(left + 360 * scale, 170 * scale), ui_color(MenuGold), smb3_text("KEYBOARD", "TECLADO"));
-    draw->AddText(ImVec2(left + 650 * scale, 170 * scale), ui_color(MenuGold), smb3_text("CONTROLLER", "MANDO"));
+    // The column's controller: automatic, or one of those connected (it rumbles when chosen).
+    const int pads = smb3_ui_pads(), chosen_pad = smb3_ui_chosen_pad(controls_player);
+    const std::string pad_label = chosen_pad < 0 ? smb3_text("CONTROLLER: AUTO", "MANDO: AUTO") :
+        smb3_text("CONTROLLER: ", "MANDO: ") + std::to_string(chosen_pad + 1);
+    if (ui_option("controller", pad_label.c_str(), ImVec2(left + 650 * scale, 157 * scale), ImVec2(270 * scale, 40 * scale),
+                  scale, controls_row == ControlsPadRow, MenuGold) || (controls_row == ControlsPadRow && (direction || enter))) {
+        smb3_ui_choose_pad(controls_player, (chosen_pad + 1 + (direction < 0 ? pads : 1)) % (pads + 1) - 1);
+        controls_row = ControlsPadRow;
+    }
     const char *const names[] = {smb3_text("Jump / A", "Saltar / A"), smb3_text("Run / B", "Correr / B"),
         smb3_text("Select", "Selección"), smb3_text("Start", "Inicio"),
         ui_label("Up"), ui_label("Down"), ui_label("Left"), ui_label("Right")};
@@ -556,22 +566,31 @@ void ui_controls(float scale) {
             ImGui::PushID(button * 2 + pad);
             char label[128]; smb3_ui_bind_label(controls_player, button, pad, label, sizeof label);
             const bool waiting = binding_button == button && binding_pad == pad && binding_player == controls_player;
-            const bool selected = controls_row == button + 2 && controls_column == pad;
+            const bool selected = controls_row == button + ControlsFirstBinding && controls_column == pad;
             if (ui_option("binding", waiting ? "..." : *label ? ui_label(label) : "---",
                 ImVec2(left + (pad ? 650 : 360) * scale, y), ImVec2(270 * scale, 35 * scale), scale, selected, 0xfff9eb) || (selected && enter)) {
-                controls_row = button + 2; controls_column = pad;
+                controls_row = button + ControlsFirstBinding; controls_column = pad;
                 binding_player = controls_player; binding_button = button; binding_pad = pad;
                 binding_status = pad ? smb3_text("Press a button or move an axis on your controller.",
                                                  "Pulsa un botón o mueve un eje del mando.")
                                      : smb3_text("Press the new key.", "Pulsa la nueva tecla.");
-            } else if (ui_mouse && ImGui::IsItemHovered() && !editing) { controls_row = button + 2; controls_column = pad; }
+            } else if (ui_mouse && ImGui::IsItemHovered() && !editing) { controls_row = button + ControlsFirstBinding; controls_column = pad; }
             ImGui::PopID();
         }
     }
-    ui_text(binding_status.empty() ? smb3_text("Choose an input to change its binding.", "Elige un control para cambiarlo.")
-                                   : binding_status.c_str(), 15 * scale, 540 * scale, ui_ink());
-    if (ui_button("controls back", smb3_text("Back", "Volver"), 572 * scale, 96 * scale, scale, controls_row == 10, ui_ink()) ||
-        (controls_row == 10 && enter) || ui_pressed(ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight)) frontend_back();
+    std::string status = binding_status.empty() ? smb3_text("Choose an input to change its binding.", "Elige un control para cambiarlo.")
+                                                : binding_status;
+    if (controls_row == ControlsPadRow && !editing) {
+        const int pad = smb3_ui_pad_in_use(controls_player);
+        char name[128] = "";
+        smb3_ui_pad_name(pad, name, sizeof name);
+        status = pads == 0 ? smb3_text("No controller is connected.", "No hay mandos conectados.") :
+            pad < 0 ? smb3_text("Uses no controller. Change it with left and right.", "No usa mando. Cámbialo con izquierda y derecha.") :
+            smb3_text("Uses controller ", "Usa el mando ") + std::to_string(pad + 1) + ": " + name;
+    }
+    ui_text(status.c_str(), 15 * scale, 540 * scale, ui_ink());
+    if (ui_button("controls back", smb3_text("Back", "Volver"), 572 * scale, 96 * scale, scale, controls_row == ControlsBackRow, ui_ink()) ||
+        (controls_row == ControlsBackRow && enter) || ui_pressed(ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight)) frontend_back();
 }
 
 void ui_practice(float scale) {

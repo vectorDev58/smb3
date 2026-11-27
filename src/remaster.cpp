@@ -2306,6 +2306,7 @@ extern "C" const CycHostExtras *cyc_host_extras(void) {
 }
 
 extern "C" bool smb3_ui_spanish(void) { return spanish_ui; }
+extern "C" bool smb3_coop_enabled(void) { return smb3::coop.enabled; }
 
 #ifdef CYC_WITH_RECOMP_UI
 const char *smb3_launcher_i18n_text(const char *english) { return english ? ui_label(english) : ""; }

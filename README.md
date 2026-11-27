@@ -26,7 +26,7 @@ cd smb3-pc-linux-x86_64
 
 ### Co-op: two players at once
 
-SMB3's own 2-player mode takes turns, and only the battle mini-game is simultaneous. Choose **Co-op** in character selection to play every level together, then choose player 2's character: any of the four except player 1's, Toad and Toadette included when the resource packs are installed. Each character keeps their own art, poses, and suit colors. Player 2 uses the second controller, which you can remap in **Settings → Controls**.
+SMB3's own 2-player mode takes turns, and only the battle mini-game is simultaneous. Choose **Co-op** in character selection to play every level together, then choose player 2's character: any of the four except player 1's, Toad and Toadette included when the resource packs are installed. Each character keeps their own art, poses, and suit colors. Player 1 gets the first controller and player 2 the second. With only one controller and player 1 on **Keyboard + controller**, player 1 plays on the keyboard and player 2 on that controller. To change who plays on what, see **Settings → Controls** below.
 
 It plays like Super Mario Bros. Wonder's co-op. Both players use the game's own rules for running, jumping, power-ups, blocks, enemies, shells, and fireballs, and they pass through each other. The camera follows the leader, who wears a small crown. Enemies and their fireballs, hammers, and boomerangs can hit either player.
 
@@ -84,7 +84,7 @@ Toad and Toadette appear in character selection when the first two packs are ins
 | Take a screenshot | F12 | Configurable |
 | Fast-forward while held | Tab | Right trigger |
 
-**Settings → Display** controls the aspect mode and window scale. **Settings → Controls** lets you remap the controls for each player. **Settings → Practice** opens the tools for level selection, powers, and lives.
+**Settings → Display** controls the aspect mode and window scale. **Settings → Controls** lets you remap the controls for each player, choose who plays on the keyboard (its input row), and choose each player's controller in the **Controller** row: **Auto** or one of those connected, which rumbles when chosen. Giving player 2 the controller player 1 had swaps them. A player moved to the keyboard without keys of their own takes the other player's keys. **Settings → Practice** opens the tools for level selection, powers, and lives.
 
 **Settings → Remastered** works like the visual options of Super Mario Bros. Remastered. **Visual style** switches between the remastered art and the original NES colors and tiles. Both styles keep the widescreen view, the menus, and the save. Shadows, background particles, parallax, the HUD layout (split panels or the NES status bar), and the star effect (classic or rainbow) each have their own switch.
 

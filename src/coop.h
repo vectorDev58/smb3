@@ -56,7 +56,9 @@ struct CoopState { // Saved in save states as raw bytes: keep it trivially copya
 inline CoopState coop;
 // tools/verify_widescreen.py reads these from save states.
 static_assert(offsetof(CoopState, present) == 1 && offsetof(CoopState, partner_is_p1) == 2 &&
-              offsetof(CoopState, bubble) == 3 && offsetof(CoopState, ghost) == 10, "Update coop_state()");
+              offsetof(CoopState, bubble) == 3 && offsetof(CoopState, buttons) == 4 &&
+              offsetof(CoopState, ghost) == 10 && offsetof(CoopState, partner) == 21 && CoopRam[X] == 0x90,
+              "Update coop_state()");
 inline const uint8_t *coop_palettes = nullptr; // PowerUp_Palettes in the ROM: 8 rows of 4 colors.
 
 // Level_SetPlayerPUpPal for the player in RAM: the player palette follows the lead's suit.

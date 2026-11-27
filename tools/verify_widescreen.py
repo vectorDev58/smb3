@@ -27,8 +27,9 @@ def coop_state(path):
     """The co-op block of a save state; offsets checked by static_assert in src/coop.h."""
     data = path.read_bytes()
     at = data.index(b"smb3.coop\0") + 64
-    return dict(present=data[at + 1], partner_is_p1=data[at + 2], bubble=data[at + 3],
-                ghost=struct.unpack_from("<H", data, at + 10)[0])
+    partner = at + 21  # CoopRam order: Player_XHi, then Player_X two bytes later
+    return dict(present=data[at + 1], partner_is_p1=data[at + 2], bubble=data[at + 3], buttons=data[at + 4],
+                ghost=struct.unpack_from("<H", data, at + 10)[0], x=data[partner + 2] * 256 + data[partner + 4])
 
 
 def projectile_metadata(cart, slot, replacement=None):

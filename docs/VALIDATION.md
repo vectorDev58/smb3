@@ -9,6 +9,7 @@ python3 -m unittest discover -s tests -v
 python3 tools/verify.py
 python3 tools/verify_graphics.py
 python3 tools/verify_widescreen.py
+python3 tools/verify_coop_pad.py
 ctest --test-dir build --output-on-failure
 ```
 
@@ -239,3 +240,25 @@ Verificación:
   - Tuberías y puertas tomadas por el compañero.
   - Una partida completa y dos mandos físicos.
 - **Límites**: el piloto automático muere pronto en muchos niveles, así que el recorrido cubre sobre todo sus primeros tramos. El HUD muestra al líder. Morir con el otro jugador en juego no resta vidas. El fantasma y la burbuja muestran al personaje de pie, en su forma grande.
+
+## Mandos de cada jugador (rama `coop`) — 26 de noviembre de 2026, noche
+
+Fallo reportado al jugar: con el jugador 1 en "Teclado + mando" y un solo mando conectado, el mando movía al jugador 1 en el mapa y el jugador 2 no tenía control. NESRecomp da a un jugador 1 de teclado el primer mando que nadie tenga asignado.
+
+`CMakeLists.txt` hace que `cyc_sdl.c` lea los mandos a través de `smb3_input_eval` (`src/ui_host.c`), sin tocar `.deps/`. La asignación está en `src/pad_choice.h`:
+
+- **Elegido en Controles**: la fila MANDO de cada jugador ofrece AUTO o uno de los mandos conectados. En la sesión vale ese mando exacto; `config.ini` guarda su modelo (`PlayerNDevice`), y al reiniciar el jugador toma el primer mando libre de ese modelo. Si un jugador elige el mando del otro, el otro pasa a AUTO. El mando vibra al elegirlo. La línea de estado dice qué mando usa el jugador.
+- **Cooperativo con el jugador 1 en teclado**: si queda un solo mando libre, es del jugador 2, que lo conserva. Un mando conectado después va al jugador 1, así que nadie cambia de personaje. Esta asignación no se guarda en `config.ini`.
+- **AUTO, como NESRecomp**: un jugador 1 de teclado toma el primer mando libre, luego cada jugador de mando el siguiente; un jugador 2 de teclado, el último.
+- **Teclado**: cualquier jugador puede usar "Teclado + mando". Un jugador sin teclas propias (el 2 no tiene por defecto) recibe las del otro al pasar al teclado.
+
+Mientras NESRecomp no reabre sus mandos tras conectar o desconectar uno, rige su propia asignación. Un jugador cuyo mando cambia se evalúa solo, como jugador 1 con ese mando; los atajos siguen leyendo todos los mandos.
+
+Verificación:
+
+- **Prueba unitaria** (`ctest`, `render_math`): mando solo para el jugador 1 sin cooperativo y para el jugador 2 con él, un segundo mando que aparece primero en el orden de SDL, el mando elegido, dos mandos iguales tras reiniciar, jugador 2 en teclado y jugador sin entrada.
+- **Ventana oculta** (`verify_coop_pad.py`, servidor TCP y un mando virtual; los mandos reales quedan fuera): en cooperativo con el jugador 1 en teclado, el mando no mueve al jugador 1 en el mapa y el teclado sí. En 1-1 el mando mueve al compañero y no al jugador 1. Luego, por teclado: pausa → Configuración → Controles, mando 1 para el jugador 1 y jugador 2 a teclado. Al volver, el mando mueve al jugador 1 y el compañero no recibe nada. `config.ini` guarda `Player1Device`, deja vacío `Player2Device` y da al jugador 2 las teclas del 1. Con el binario anterior al arreglo, la prueba falla en el mapa, como en el fallo reportado.
+- **Pantalla revisada** en capturas, en inglés: fila CONTROLLER en AUTO ("Uses no controller") y con el mando 1 elegido ("Uses controller 1: NESRecomp virtual controller").
+- `ctest`, `python3 -m unittest`, `verify.py` y `verify_widescreen.py` pasan.
+- **Encontrado y sin corregir**: Escape actúa dos veces en los menús del juego (tecla del menú y atajo de NESRecomp). Desde Controles vuelve directo a la pausa, y en la pausa no reanuda. Retroceso y el mando funcionan.
+- **Sin probar**: mandos físicos, dos mandos a la vez (la prueba solo crea uno virtual), la vibración, conectar un mando a media partida y Windows (la prueba copia solo el ejecutable).
