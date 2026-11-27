@@ -208,3 +208,34 @@ SMB3 tiene un solo jugador por nivel. El compañero guarda sus variables de juga
 - **Capturas**: carrera y salto del compañero, golpe a un bloque "?", subida a los bloques grandes, bolas de fuego que derriban al Goomba (traje asignado para la prueba), relevo en los dos sentidos con la cámara siguiendo al nuevo líder y opción COOPERATIVO en la selección, en español.
 - **Sin probar**: niveles con desplazamiento automático, salas verticales, agua, tuberías y puertas tomadas por el compañero, el zapato de Kuribo, la estatua Tanooki, los barcos, los jefes, el traje de rana y una partida completa. No se probó con dos mandos físicos.
 - **Límites conocidos**: los proyectiles enemigos (martillos, fuego de las plantas) solo alcanzan al jugador que lidera. El compañero se ve con los gráficos de la ROM, sin el arte de los resource packs. El HUD muestra al líder. Morir con el otro jugador vivo no resta vidas.
+
+## Cooperativo como en Super Mario Bros. Wonder (rama `coop`) — 26 de noviembre de 2026, tarde
+
+- **Personaje del jugador 2**: tras elegir COOPERATIVO, el jugador 2 elige personaje (cualquiera salvo el del jugador 1; Toad y Toadette con los resource packs). Se guarda como `Partner` en `config.ini`; en pruebas, `--partner`.
+- **Arte**: el compañero usa el mismo código de dibujo que el líder (poses, trajes y colores de los resource packs). Una corona marca al líder, al que sigue la cámara.
+- **Fantasma y burbuja**: un jugador derrotado queda 5 segundos como fantasma donde cayó; si el líder lo toca, vuelve ahí. Si no, o si cayó a un hoyo, vuelve en una burbuja que flota hacia el líder y revienta al llegar. Un compañero que la pantalla deja atrás también vuelve en burbuja; antes lo arrastraba el borde, que podía meterlo en una pared. Si caen los dos, se pierde la vida.
+- **Proyectiles enemigos**: martillos, fuego de plantas, bumeranes y balas de cañón tratan con el jugador más cercano y alcanzan al compañero.
+- **Pruebas**: `--level` empieza en un nivel del modo práctica, por ejemplo `--level 3-3` o `--level "1-Airship"`.
+
+Verificación:
+
+- **Automático** (`verify_widescreen.py`, a 21:9), además de lo anterior: el fantasma del jugador 1 revive al tocarlo, un compañero rezagado vuelve en burbuja hasta el líder y el fuego de la piraña de 1-1 alcanza al compañero. El estado se lee del registro `smb3.coop` de partidas guardadas.
+- **Recorrido automático de 88 niveles en cooperativo**: niveles numerados de los 8 mundos, fortalezas, dirigibles, tanques, barcos, castillo de Bowser, trampa de arena, pirámide, torre espiral, plantas piraña y emboscada. Duró 2400 fotogramas por nivel, con los dos jugadores corriendo y saltando y el jugador 1 con estrella. Ningún nivel se colgó ni dejó rutinas sin terminar. En 1-1, 1-Airship, 2-Fortress 1, 3-3, 4-4, 5-Airship, 6-1, 7-1 y 8-Tanks 1, las trazas nativas y del intérprete coinciden durante 1800 fotogramas. El recorrido encontró cuatro fallos, ya corregidos:
+  - En 3-3, la burbuja no alcanzaba a un líder que estaba bajo el borde de la pantalla.
+  - En la sala vertical de 7-1, el compañero se salía por el borde.
+  - Un fantasma o una burbuja pasaban al nivel siguiente.
+  - Faltaba el zapato de Kuribo bajo el compañero.
+- **Capturas revisadas**:
+  - Fantasma revivido y burbuja de vuelta en 1-1.
+  - Fuego de la piraña sobre el compañero.
+  - Luigi como compañero con cada traje: fuego (lanza y derriba un Goomba), mapache (vuela), rana, Tanuki (estatua y vuelta) y martillo.
+  - Dirigible del mundo 1 con desplazamiento automático, agua en 3-3 y sala vertical de 7-1.
+  - Selección del jugador 2 en el menú, con el servidor TCP en ventana oculta, y `Partner` guardado.
+- **Un jugador sin cambios**: 4 personajes en pequeño, fuego y mapache, con 110 capturas de 1-1 cada uno, son idénticos píxel a píxel a la versión anterior.
+- `python3 -m unittest`, `verify.py`, `verify_widescreen.py` y `verify_graphics.py` pasan.
+- **Sin probar**:
+  - El zapato de Kuribo real: al forzarlo, sus tiles no se cargan, tanto en el líder como en el compañero.
+  - Los jefes, porque el piloto automático no llega a ellos.
+  - Tuberías y puertas tomadas por el compañero.
+  - Una partida completa y dos mandos físicos.
+- **Límites**: el piloto automático muere pronto en muchos niveles, así que el recorrido cubre sobre todo sus primeros tramos. El HUD muestra al líder. Morir con el otro jugador en juego no resta vidas. El fantasma y la burbuja muestran al personaje de pie, en su forma grande.

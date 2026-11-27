@@ -291,6 +291,12 @@ inline int player_projectile_hit(const uint8_t *ram) {
         (ram[0x76 + registers.y] * 256 + ram[0x91 + registers.y])) >= 64;
 }
 
+// A projectile's world X from its screen X: its page kept in cart RAM, else the copy nearest `near`.
+inline int projectile_world_x(int meta, int low, uint8_t id, int near) {
+    const int high = projectile_high(meta), tag = projectile_tag(meta);
+    return high & 0x10 ? unwrap(low, (high & 15) * 256 + tag) : tag == id && high < 16 ? high * 256 + low : unwrap(low, near);
+}
+
 inline int update_projectile(const uint8_t *ram, bool enabled, bool player = false) {
     if (!wide_level(ram, enabled) || cyc_mod_isolated()) return 0;
     CycModRegs registers{};
@@ -303,10 +309,7 @@ inline int update_projectile(const uint8_t *ram, bool enabled, bool player = fal
     const uint8_t id = cyc_mod_peek(id_address);
     if (!id) { projectile_tag(meta, 0); projectile_high(meta, 0); return 0; }
     const int camera = ram[0x12] * 256 + ram[0xfd], low = cyc_mod_peek(x_address);
-    const int high = projectile_high(meta), tag = projectile_tag(meta);
-    const int world = high & 0x10 ? unwrap(low, (high & 15) * 256 + tag) :
-        tag == id && high < 16 ? high * 256 + low : unwrap(low,
-            player ? ram[0x75] * 256 + ram[0x90] : camera + 128);
+    const int world = projectile_world_x(meta, low, id, player ? ram[0x75] * 256 + ram[0x90] : camera + 128);
     if (world < world_left(ram) - 32 || world >= world_left(ram) + cyc_video_width() + 32) {
         cyc_mod_poke(id_address, 0);
         projectile_tag(meta, 0);

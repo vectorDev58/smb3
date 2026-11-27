@@ -26,9 +26,16 @@ cd smb3-pc-linux-x86_64
 
 ### Co-op: two players at once
 
-SMB3's own 2-player mode takes turns, and only the battle mini-game is simultaneous. Choose **Co-op** in character selection to play every level together: player 1 is the chosen character and player 2 is Luigi, or Mario when player 1 is Luigi. Player 2 uses the second controller, which you can remap in **Settings → Controls**.
+SMB3's own 2-player mode takes turns, and only the battle mini-game is simultaneous. Choose **Co-op** in character selection to play every level together, then choose player 2's character: any of the four except player 1's, Toad and Toadette included when the resource packs are installed. Each character keeps their own art, poses, and suit colors. Player 2 uses the second controller, which you can remap in **Settings → Controls**.
 
-Both players use the game's own rules for running, jumping, power-ups, blocks, enemies, shells, and fireballs. The camera follows the leading player, and the other player stays on that screen. If the leader takes a pipe or a door, the partner follows. If the partner takes it, the partner becomes the leader. A player who falls returns beside the other after about two seconds, and the level only restarts when both are down. The world map, items, lives, and score are shared.
+It plays like Super Mario Bros. Wonder's co-op. Both players use the game's own rules for running, jumping, power-ups, blocks, enemies, shells, and fireballs, and they pass through each other. The camera follows the leader, who wears a small crown. Enemies and their fireballs, hammers, and boomerangs can hit either player.
+
+- A defeated player becomes a ghost for five seconds. If the leader touches the ghost, that player comes back right there.
+- Otherwise, and after falling into a pit, the player floats back to the leader in a bubble. A player the screen leaves behind also returns in a bubble.
+- If the leader is defeated while the other player is still in the game, the other player becomes the leader. The level only restarts, and a life is only lost, when both are down.
+- If the leader takes a pipe or a door, the other player follows. If the other player takes it or reaches the goal, that player becomes the leader.
+
+The world map, items, lives, and score are shared.
 
 ### First launch
 

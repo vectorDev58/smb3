@@ -23,6 +23,14 @@ def captures(path):
     assert offset == len(data)
 
 
+def coop_state(path):
+    """The co-op block of a save state; offsets checked by static_assert in src/coop.h."""
+    data = path.read_bytes()
+    at = data.index(b"smb3.coop\0") + 64
+    return dict(present=data[at + 1], partner_is_p1=data[at + 2], bubble=data[at + 3],
+                ghost=struct.unpack_from("<H", data, at + 10)[0])
+
+
 def projectile_metadata(cart, slot, replacement=None):
     start, count = (slot * 13, 13) if slot < 8 else (104 + (slot - 8) * 6, 6)
     value, changed = 0, bytearray(cart)
@@ -209,6 +217,24 @@ def main():
     assert not any(ram[0x4f4] & 1 for _, ram, _ in takeover), "Sonó la música de muerte con el compañero vivo"
     print("Cooperativo: pisotón del compañero, mandos separados, relevo al morir el líder e intérprete igual.", flush=True)
 
+    # As in Super Mario Bros. Wonder: a ghost the lead touches, a bubble back to the lead, shared dangers.
+    def coop_states(name, text, frames, checkpoints, pokes=""):
+        saves = [arg for frame in checkpoints for arg in ("--save-state", f"{frame}:{out / f'{name}-{frame}.cycstate'}")]
+        fixture(name, text + pokes, frames=frames, extra=("--coop", *saves))
+        return {frame: coop_state(out / f"{name}-{frame}.cycstate") for frame in checkpoints}
+    revive = coop_states("coop-ghost", "450 1:RIGHT\n450 2:NONE\n580 2:RIGHT\n604 2:RIGHT+A\n630 2:RIGHT\n680 2:NONE\n",
+                         760, (600, 740))
+    assert revive[600]["ghost"] and revive[600]["partner_is_p1"], "El jugador 1 no quedó como fantasma"
+    assert revive[740]["present"] and not revive[740]["ghost"] and not revive[740]["bubble"], "Tocar al fantasma no lo revive"
+    behind = coop_states("coop-bubble", "450 1:RIGHT+B\n480 1:RIGHT+B+A\n505 1:RIGHT+B\n560 1:RIGHT+B+A\n"
+                         "580 1:RIGHT+B\n640 1:NONE\n450 2:NONE\n", 760, (620, 740), pokes="450 HOLD 0553 FF\n")
+    assert behind[620]["bubble"] and not behind[620]["partner_is_p1"], "El compañero rezagado no va en burbuja"
+    assert behind[740]["present"] and not behind[740]["bubble"], "La burbuja no llega al líder"
+    shot = coop_states("coop-fireball", "450 1:NONE\n450 2:RIGHT\n530 2:RIGHT+A\n544 2:RIGHT\n640 2:NONE\n",
+                       900, (840, 899), pokes="450 HOLD 0553 FF\n")
+    assert not shot[840]["ghost"] and shot[899]["ghost"] and not shot[899]["partner_is_p1"], "El fuego de la piraña no alcanza al compañero"
+    print("Cooperativo como en Wonder: fantasma revivido al tocarlo, burbuja de vuelta y fuego enemigo para ambos.", flush=True)
+
     for number, map_y, tileset in ((3, 0x20, 1), (4, 0x40, 4)):
         controls = out / f"level-{number}.txt"
         controls.write_text(f"12 START\n13 NONE\n68 START\n69 NONE\n328 POKE 0079 A0\n"
@@ -233,7 +259,8 @@ def main():
     report = dict(result="passed", actor_counts=counts, enemy_projectiles_cross_native_edge=True,
                   native_interpreter_match=True, save_load_continuation=True, collision_distance_guard=True,
                   cannons=2, player_projectiles_cross_native_edge=True, chest_flags_preserved=True,
-                  shell_collision_and_bricks=True, coop_partner_and_takeover=True, visible_actor_retained=True, fallen_actor_waits_for_reentry=True,
+                  shell_collision_and_bricks=True, coop_partner_and_takeover=True,
+                  coop_ghost_bubble_and_projectiles=True, visible_actor_retained=True, fallen_actor_waits_for_reentry=True,
                   levels_1_3_and_1_4_execution_match=True, autoscroll_boundary_expanded=True,
                   complete_campaign_playthrough=False,
                   executable_sha256=hashlib.sha256(binary.read_bytes()).hexdigest())

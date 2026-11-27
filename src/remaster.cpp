@@ -65,10 +65,11 @@ constexpr uint8_t ResultChrBank = 0x5e;
 constexpr uint32_t GoalBlack = 0xff000000;
 const char *const Characters[] = {"Mario", "Luigi", "Toad", "Toadette"};
 // enhanced picks the art; the widescreen view and the other options apply to both styles.
-int character = 0, enhanced = 1, shadows = 1, view = 2;
+int character = 0, partner = 1, enhanced = 1, shadows = 1, view = 2; // partner: player 2's character in co-op
 int particles = 1, parallax = 1, modern_hud = 1, rainbow_star = 0;
 bool spanish_ui = false;
 int character_count = 2;
+std::string requested_level; // --level: automated tests start in this practice level.
 smb3::FrontendFlow frontend;
 #ifdef CYC_WITH_RECOMP_UI
 constexpr uint16_t VBlankTick = 0x10;
@@ -193,7 +194,10 @@ int actor_spawning(uint16_t) {
     return 0;
 }
 int projectile_origin(uint16_t) { return smb3::projectile_origin(cyc_cpu_ram(), true); }
-int update_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), true); }
+int update_projectile(uint16_t) {
+    smb3::coop_special_begin(cyc_cpu_ram()); // Undone after the object's turn by smb3.coop-special-done.
+    return smb3::update_projectile(cyc_cpu_ram(), true);
+}
 int projectile_hit(uint16_t) { return smb3::projectile_hit(cyc_cpu_ram()); }
 int update_player_projectile(uint16_t) { return smb3::update_projectile(cyc_cpu_ram(), true, true); }
 int player_projectile_hit(uint16_t) { return smb3::player_projectile_hit(cyc_cpu_ram()); }
@@ -212,6 +216,7 @@ int coop_player_done_hook(uint16_t) { return smb3::coop_player_done(cyc_cpu_ram(
 int coop_scrolling_hook(uint16_t) { return smb3::coop_scrolling(); }
 int coop_die_hook(uint16_t) { return smb3::coop_die(cyc_cpu_ram()); }
 int coop_throw_hook(uint16_t) { return smb3::coop_throw(cyc_cpu_ram()); }
+int coop_special_done_hook(uint16_t) { smb3::coop_object_end(cyc_cpu_ram()); return 0; }
 int actor_keep_visible(uint16_t) { return smb3::keep_visible_actor(cyc_cpu_ram(), true); }
 int remember_collision_box(uint16_t) { return smb3::remember_collision_box(cyc_cpu_ram(), true); }
 int intersect_world_boxes(uint16_t) { return smb3::intersect_world_boxes(cyc_cpu_ram(), true); }
@@ -243,6 +248,7 @@ const int ActorHooksRegistered[] = {
     nes_mod_register_function_entry_plugin("smb3.coop-scrolling", 0xB11F, coop_scrolling_hook),
     nes_mod_register_function_entry_plugin("smb3.coop-die", 0xDA7C, coop_die_hook),
     nes_mod_register_function_entry_plugin("smb3.coop-throw", 0xA247, coop_throw_hook),
+    nes_mod_register_function_entry_plugin("smb3.coop-special-done", 0xAF20, coop_special_done_hook),
     nes_mod_register_savestate_hook("smb3.coop", smb3::coop_save, smb3::coop_load),
 #ifdef CYC_WITH_RECOMP_UI
     nes_mod_register_function_entry_plugin("smb3.practice-world", 0x84A0, practice_start_world),
@@ -462,6 +468,7 @@ bool integer(const char *text, int minimum, int maximum, int &output) {
 
 void load_setting(void *, const char *key, const char *value) {
     if (!std::strcmp(key, "Character")) integer(value, 0, 3, character);
+    if (!std::strcmp(key, "Partner")) integer(value, 0, 3, partner);
     if (!std::strcmp(key, "Remastered")) integer(value, 0, 1, enhanced);
     if (!std::strcmp(key, "Shadows")) integer(value, 0, 1, shadows);
     if (!std::strcmp(key, "BackgroundParticles")) integer(value, 0, 1, particles);
@@ -476,16 +483,17 @@ void load_setting(void *, const char *key, const char *value) {
 }
 
 void save_settings(void *, FILE *file) {
-    std::fprintf(file, "Character = %d\nRemastered = %d\nShadows = %d\nBackgroundParticles = %d\nParallax = %d\n"
-                 "ModernHud = %d\nRainbowStar = %d\nPresentationAspect = %d\nLanguage = %s\n",
-                 character, enhanced, shadows, particles, parallax, modern_hud, rainbow_star, view,
+    std::fprintf(file, "Character = %d\nPartner = %d\nRemastered = %d\nShadows = %d\nBackgroundParticles = %d\n"
+                 "Parallax = %d\nModernHud = %d\nRainbowStar = %d\nPresentationAspect = %d\nLanguage = %s\n",
+                 character, partner, enhanced, shadows, particles, parallax, modern_hud, rainbow_star, view,
                  smb3_text("en", "es"));
 }
 
 bool option(void *, const char *name, const char *value) {
     if (!std::strcmp(name, "--skip-selection")) { frontend.loaded(); return true; }
     if (!std::strcmp(name, "--coop")) { smb3::coop.enabled = 1; return true; }
-    if (!std::strcmp(name, "--character")) {
+    if (!std::strcmp(name, "--level")) { requested_level = value; return true; }
+    if (!std::strcmp(name, "--character") || !std::strcmp(name, "--partner")) {
         for (int i = 0; i < 4; ++i) {
             std::string candidate = Characters[i];
             for (char &letter : candidate) letter = static_cast<char>(std::tolower(static_cast<unsigned char>(letter)));
@@ -495,7 +503,7 @@ bool option(void *, const char *name, const char *value) {
                 std::fprintf(stderr, "%s necesita los resource packs descritos en README.md.\n", Characters[i]);
                 return false;
             }
-            character = i;
+            (std::strcmp(name, "--partner") ? character : partner) = i;
             return true;
         }
     }
@@ -543,10 +551,14 @@ SpriteRow sprite_row(const uint8_t *sprite, int y, const uint8_t *banks = nullpt
     return {chr_byte(pattern + y % 8, banks), chr_byte(pattern + y % 8 + 8, banks), bool(sprite[2] & 0x40)};
 }
 
-// Player 2 in co-op: Luigi, or Mario when player 1 chose Luigi.
-int partner_character() { return character == 1 ? 0 : 1; }
+// Player 2 in co-op: their own choice, never player 1's character.
+int player2_character() {
+    if (partner != character && partner < character_count) return partner;
+    return character == 1 ? 0 : 1;
+}
 // Whose player variables are in RAM: player 1's, unless co-op handed the lead to player 2.
-int lead_character() { return smb3::coop.enabled && smb3::coop.partner_is_p1 ? partner_character() : character; }
+int lead_character() { return smb3::coop.enabled && smb3::coop.partner_is_p1 ? player2_character() : character; }
+int partner_who() { return smb3::coop.partner_is_p1 ? character : player2_character(); }
 
 // Small, Super and Raccoon share the red or green palette of the character wearing them.
 uint32_t player_color(unsigned nes_color, unsigned suit, bool star, int who) {
@@ -765,18 +777,23 @@ struct PlayerBounds {
     bool visible() const { return right >= left && bottom >= top; }
 };
 
-PlayerBounds player_bounds(const uint8_t *ram) {
+// One player's six sprites as its Player_Draw left them, placed on the wide screen.
+struct PlayerTiles {
+    const uint8_t *oam = nullptr;          // Six sprites of four bytes
+    const uint8_t *banks = nullptr;        // PatTable_BankSel when they were drawn; nullptr: the frame's
+    const uint8_t *suit_colors = nullptr;  // Palette 0 from PowerUp_Palettes; nullptr: the PPU's
+    std::array<int, 6> left{};             // Screen X of each sprite
+    int rise = 0;                          // Vertical scroll since they were drawn
+    int top(int slot) const { return oam[slot * 4] + 1 + rise; }
+};
+
+PlayerBounds tile_bounds(const PlayerTiles &tiles) {
     PlayerBounds bounds;
-    bounds.first = ram[0x58e] / 4;
-    if (bounds.first > 58) return bounds;
-    const uint8_t *sprites = oam();
-    const int camera = ram[0x3ef] ? 0 : camera_x(ram);
-    const int anchor = smb3::unwrap(sprites[bounds.first * 4 + 3], ram[0x75] * 256 + ram[0x90] - camera);
-    for (int slot = bounds.first; slot < bounds.first + 6; ++slot) {
-        const int top = sprites[slot * 4] + 1, left = smb3::unwrap(sprites[slot * 4 + 3], anchor);
+    for (int slot = 0; slot < 6; ++slot) {
+        const int top = tiles.top(slot), left = tiles.left[slot];
         if (top >= PlayfieldHeight) continue;
         for (int y = 0; y < 16 && y + top < PlayfieldHeight; ++y) {
-            const auto row = sprite_row(sprites + slot * 4, y);
+            const auto row = sprite_row(tiles.oam + slot * 4, y, tiles.banks);
             for (int x = 0; x < 8; ++x)
                 if (row.pixel(x)) {
                     bounds.left = std::min(bounds.left, left + x);
@@ -870,99 +887,61 @@ void place_screen_effects(std::array<int, 64> &positions, std::array<bool, 64> &
     }
 }
 
-void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
-                  const std::vector<uint8_t> &opaque) {
-    const int character = lead_character(); // The player in RAM, whose sprites are in OAM.
-    auto &sprites = sprite_layer;
-    sprites.assign(width * PlayfieldHeight, 0);
-    const uint8_t *sprites_oam = oam();
-    const PlayerBounds player = player_bounds(ram);
-    const int camera = ram[0x3ef] ? 0 : camera_x(ram);
-    const int player_x = smb3::unwrap(sprites_oam[player.first * 4 + 3], ram[0x75] * 256 + ram[0x90] - camera);
-    const int body_x = origin + player_x;
-    std::array<int, 64> positions;
-    std::array<bool, 64> grouped{};
-    for (int slot = 0; slot < 64; ++slot) positions[slot] = sprites_oam[slot * 4 + 3];
-    for (int slot = player.first; slot < std::min(player.first + 6, 64); ++slot) {
-        positions[slot] = smb3::unwrap(positions[slot], player_x);
-        grouped[slot] = true;
-    }
-    for (int object = 0; object < 8; ++object) {
-        if (!ram[0x661 + object]) continue;
-        const int first = ram[0x58f + object] / 4;
-        int end = std::min(first + 8, 64);
-        if (player.first > first) end = std::min(end, player.first);
-        for (int other = 0; other < 8; ++other)
-            if (ram[0x661 + other] && ram[0x58f + other] / 4 > first)
-                end = std::min(end, ram[0x58f + other] / 4);
-        const int expected = ram[0x76 + object] * 256 + ram[0x91 + object] - camera;
-        const int anchor = smb3::unwrap(ram[0xac + object], expected);
-        for (int slot = first; slot < end; ++slot) {
-            if (grouped[slot] || std::abs(smb3::unwrap(positions[slot], ram[0xac + object]) - ram[0xac + object]) > 32) continue;
-            positions[slot] = smb3::unwrap(positions[slot], anchor);
-            grouped[slot] = true;
-        }
-    }
-    for (int slot = 0; slot < 64; ++slot) {
-        const auto &extra = smb3::displayed_extra_sprites[slot];
-        if (width > 256 && !(slot >= player.first && slot < player.first + 6) &&
-            extra.y == sprites_oam[slot * 4] && extra.x == sprites_oam[slot * 4 + 3]) {
-            positions[slot] = extra.world_x - camera;
-            grouped[slot] = true;
-        }
-    }
-    if (width > 256 && !ram[0x3ef])
-        place_screen_effects(positions, grouped);
-    const int lower_row = sprites_oam[player.first * 4] + 1;
-    const int upper_row = player.first <= 58 ? sprites_oam[(player.first + 3) * 4] + 1 : 256;
+// The character art that takes the place of one player's tiles; empty when the ROM's tiles stay.
+struct PlayerArt {
+    smb3::Sprite picture{};
+    PlayerBounds bounds;
+    int x = 0, y = 0;
+    uint8_t attributes = 0;
+    bool flip = false, upside_down = false, rom_tiles = false, poof = false, shoe = false;
+    bool visible() const { return smb3::sprite_visible(picture); }
+};
+
+// ram: the player's own variables (the co-op partner's are swapped into a copy).
+PlayerArt player_art(const uint8_t *ram, int who, const PlayerTiles &tiles) {
+    PlayerArt art;
+    const PlayerBounds player = art.bounds = tile_bounds(tiles);
     const unsigned frame = ram[0xee];
     const bool spinning = frame >= 0x1a && frame <= 0x1d;
-    const bool shoe = (frame == 0x43 || frame == 0x18) && ram[0x577];
-    const bool poof = player.visible() && smb3::player_poof(sprites_oam + player.first * 4);
+    const bool shoe = art.shoe = (frame == 0x43 || frame == 0x18) && ram[0x577];
+    const bool poof = art.poof = player.visible() && smb3::player_poof(tiles.oam);
     const unsigned form = smb3::reference_form(ram[0xed], frame);
     const bool water = ram[0x575] != 0;
-    smb3::Sprite reference{};
-    if (character != 0 && player.visible() && !poof && frame != 0x1e) {
+    smb3::Sprite &reference = art.picture;
+    if (who != 0 && player.visible() && !poof && frame != 0x1e) {
         const bool airborne = ram[0xd8] != 0;
         const bool attacking = (form == 3 || form == 5) ? ram[0x517] != 0 : ram[0x513] != 0;
         const auto pose = shoe ? smb3::AirbornePose::None :
             smb3::airborne_pose(form, frame, airborne, water, ram[0xcf] & 0x80, attacking);
         if (pose != smb3::AirbornePose::None)
-            reference = smb3::airborne_sprite(player_sheet(character, "Airborne.png"), form, pose);
+            reference = smb3::airborne_sprite(player_sheet(who, "Airborne.png"), form, pose);
         // Older atlases reuse grounded poses in the six flight frames. The ROM still has those poses.
         const bool wing_pose = pose >= smb3::AirbornePose::Fly1 && pose <= smb3::AirbornePose::Flutter3;
         if (!wing_pose && !smb3::sprite_visible(reference)) {
             const bool facing_front = ram[0x571] || ram[0x558]; // Level_PipeMove or Player_PipeFace
             const unsigned atlas_frame = smb3::campaign_frame(form, frame, facing_front);
-            if (character == 1 || smb3::campaign_pose(form, frame, water))
-                reference = smb3::campaign_sprite(player_sheet(character, "Campaign.png"), form, atlas_frame);
+            if (who == 1 || smb3::campaign_pose(form, frame, water))
+                reference = smb3::campaign_sprite(player_sheet(who, "Campaign.png"), form, atlas_frame);
             if (!shoe && !smb3::sprite_visible(reference))
-                reference = player_sprite(character, form, smb3::reference_cell(form, frame, ram[0xbd] != 0, water));
+                reference = player_sprite(who, form, smb3::reference_cell(form, frame, ram[0xbd] != 0, water));
         }
     }
-    const uint8_t player_attr = sprites_oam[player.first * 4 + 2];
-    const uint8_t reference_attr = shoe && player.first <= 58 ? sprites_oam[(player.first + 3) * 4 + 2] : player_attr;
-    bool flip = !(reference_attr & 0x40);
-    const int center_x = origin + (player.left + player.right + 1) / 2;
-    const int center_y = (player.top + player.bottom + 1) / 2;
-    const unsigned light = scenery_light(ram);
-    const bool star_palette = ram[0x553] || ram[0x555];
-    const bool rainbow = rainbow_star && ram[0x553]; // Player_StarInv
-    const int rainbow_phase = static_cast<int>((cyc_cycle_count() / 29781) & 0xffffff) * 9;
-    int reference_x = body_x - 8;
-    int reference_y = shoe ? player.bottom + 1 - 32 :
-        lower_row < PlayfieldHeight ? lower_row - 16 : upper_row;
-    bool rom_luigi = false;
-    if (character == 1 && player.visible() && !smb3::sprite_visible(reference) && !poof &&
+    const uint8_t player_attr = tiles.oam[2];
+    art.attributes = shoe ? tiles.oam[3 * 4 + 2] : player_attr;
+    art.flip = !(art.attributes & 0x40);
+    const int lower_row = tiles.top(0);
+    art.x = tiles.left[0] - 8;
+    art.y = shoe ? player.bottom + 1 - 32 : lower_row < PlayfieldHeight ? lower_row - 16 : tiles.top(3);
+    if (who == 1 && player.visible() && !smb3::sprite_visible(reference) && !poof &&
         !spinning && !shoe && frame != 0x1e && player.right - player.left < 28 &&
         player.bottom - player.top < 32) {
-        reference_x = origin + player.left - 2;
-        reference_y = player.bottom + 1 - 32;
-        for (int slot = player.first; slot < player.first + 6; ++slot) {
-            const int x0 = origin + positions[slot] - reference_x;
-            const int y0 = sprites_oam[slot * 4] + 1 - reference_y;
+        art.x = player.left - 2;
+        art.y = player.bottom + 1 - 32;
+        for (int slot = 0; slot < 6; ++slot) {
+            const int x0 = tiles.left[slot] - art.x;
+            const int y0 = tiles.top(slot) - art.y;
             for (int y = std::max(0, -y0); y < 16 && y0 + y < 32; ++y) {
-                const auto row = sprite_row(sprites_oam + slot * 4, y);
+                const auto row = sprite_row(tiles.oam + slot * 4, y, tiles.banks);
                 for (int x = std::max(0, -x0); x < 8 && x0 + x < 32; ++x) {
                     const unsigned pixel = row.pixel(x);
                     if (pixel) reference[(y0 + y) * 32 + x0 + x] = pixel;
@@ -970,12 +949,10 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
             }
         }
         reference = smb3::luigi_silhouette(reference);
-        rom_luigi = true;
-        flip = false;
+        art.rom_tiles = true;
+        art.flip = false;
     }
-    const bool replacement = smb3::sprite_visible(reference);
-    const auto colors = character_colors(character, form);
-    if (replacement && spinning) {
+    if (art.visible() && spinning) {
         int left = 32, top = 32, right = 0, bottom = 0;
         for (int y = 0; y < 32; ++y)
             for (int x = 0; x < 32; ++x)
@@ -984,67 +961,214 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
                     top = std::min(top, y); bottom = std::max(bottom, y);
                 }
         const int pivot_x = (left + right + 1) / 2, pivot_y = (top + bottom + 1) / 2;
-        reference_x = center_x - (flip ? 32 - pivot_x : pivot_x);
-        reference_y = center_y - (player_attr & 0x80 ? 32 - pivot_y : pivot_y);
+        art.upside_down = player_attr & 0x80;
+        art.x = (player.left + player.right + 1) / 2 - (art.flip ? 32 - pivot_x : pivot_x);
+        art.y = (player.top + player.bottom + 1) / 2 - (art.upside_down ? 32 - pivot_y : pivot_y);
     }
-    auto paint_reference = [&]() {
+    return art;
+}
+
+unsigned tile_nes_color(const PlayerTiles &tiles, unsigned attributes, unsigned value) {
+    const unsigned palette = attributes & 3;
+    return !palette && tiles.suit_colors ? tiles.suit_colors[value] : sprite_palette(16 + palette * 4 + value);
+}
+
+void paint_player(const PlayerArt &art, const PlayerTiles &tiles, const uint8_t *ram, int who, int width,
+                  const std::vector<uint8_t> &opaque) {
+    const auto colors = character_colors(who, smb3::reference_form(ram[0xed], ram[0xee]));
+    const unsigned light = scenery_light(ram);
+    const bool star = ram[0x553] || ram[0x555];
+    const bool rainbow = rainbow_star && ram[0x553]; // Player_StarInv
+    const int rainbow_phase = static_cast<int>((cyc_cycle_count() / 29781) & 0xffffff) * 9;
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 32; ++x) {
+            const int px = art.x + x, py = art.y + y;
+            if (px < 0 || px >= width || py < 0 || py >= PlayfieldHeight || !(cyc_render_line_mask(py) & 0x10)) continue;
+            const unsigned role = art.picture[(art.upside_down ? 31 - y : y) * 32 + (art.flip ? 31 - x : x)];
+            if (!role) continue;
+            const unsigned nes = tile_nes_color(tiles, art.attributes, role);
+            const uint32_t rom = player_color(nes, ram[0xed], star, who);
+            const uint32_t color = rainbow ? smb3::rainbow(art.rom_tiles ? rom : colors[role], rainbow_phase + py * 6) :
+                art.rom_tiles ? rom : star ? smb3::sprite_color(nes) : smb3::dim(colors[role], light);
+            const int i = py * width + px;
+            sprite_layer[i] = smb3::sprite_priority(sprite_layer[i], color, art.attributes & 0x20, opaque[i]);
+        }
+}
+
+// The ROM's own tiles of a player drawn apart from the frame's OAM: the co-op partner as Mario, or
+// the first three, its Kuribo's shoe, in their own colors.
+void draw_player_tiles(const PlayerTiles &tiles, const uint8_t *ram, int who, int width,
+                       const std::vector<uint8_t> &opaque, int count = 6) {
+    const bool star = ram[0x553] || ram[0x555];
+    for (int slot = count - 1; slot >= 0; --slot) {
+        const uint8_t *sprite = tiles.oam + slot * 4;
+        if (sprite[0] >= 0xef) continue;
+        const int top = tiles.top(slot);
+        const int h = cyc_render_line_sprite16(std::clamp(top, 0, Height - 1)) ? 16 : 8;
+        for (int y = 0; y < h; ++y) {
+            const int py = top + y;
+            if (py < 0 || py >= PlayfieldHeight || !(cyc_render_line_mask(py) & 0x10)) continue;
+            const auto row = sprite_row(sprite, y, tiles.banks);
+            for (int x = 0; x < 8; ++x) {
+                const int px = tiles.left[slot] + x;
+                const unsigned value = row.pixel(x);
+                if (!value || px < 0 || px >= width) continue;
+                const int i = py * width + px;
+                const unsigned nes = tile_nes_color(tiles, sprite[2], value);
+                const uint32_t color = count == 6 ? player_color(nes, ram[0xed], star, who) : smb3::sprite_color(nes);
+                sprite_layer[i] = smb3::sprite_priority(sprite_layer[i], color, sprite[2] & 0x20, opaque[i]);
+            }
+        }
+    }
+}
+
+// A character standing, for menus, ghosts and bubbles: Selector.png, or its Super form.
+std::array<uint32_t, 32 * 32> character_portrait(int index, bool peace = false) {
+    std::array<uint32_t, 32 * 32> result{};
+    const auto &poses = player_sheet(index, "Selector.png");
+    if (poses.width == 64 && poses.height == 32) {
         for (int y = 0; y < 32; ++y)
             for (int x = 0; x < 32; ++x) {
-                const int px = reference_x + x, py = reference_y + y;
-                if (px < 0 || px >= width || py < 0 || py >= PlayfieldHeight ||
-                    !(cyc_render_line_mask(py) & 0x10)) continue;
-                const unsigned role = reference[(spinning && (player_attr & 0x80) ? 31 - y : y) * 32 +
-                                                (flip ? 31 - x : x)];
-                if (!role) continue;
-                const int i = py * width + px;
-                const unsigned palette_index = 16 + (reference_attr & 3) * 4 + role;
-                const uint32_t color = rainbow ? smb3::rainbow(rom_luigi ? player_color(sprite_palette(palette_index), ram) :
-                                                               colors[role], rainbow_phase + py * 6) :
-                    rom_luigi ? player_color(sprite_palette(palette_index), ram) :
-                    star_palette ? smb3::sprite_color(sprite_palette(palette_index)) : smb3::dim(colors[role], light);
-                sprites[i] = smb3::sprite_priority(sprites[i], color, reference_attr & 0x20, opaque[i]);
+                const uint32_t pixel = poses.at(x + (peace ? 32 : 0), y);
+                result[y * 32 + x] = pixel >> 24 ? pixel | 0xff000000 : 0;
             }
+        return result;
+    }
+    smb3::Sprite pixels = original_player;
+    if (index == 1) {
+        pixels = smb3::campaign_sprite(player_sheet(index, "Campaign.png"), 1, 0x0e);
+        if (!smb3::sprite_visible(pixels)) pixels = smb3::luigi_silhouette(original_player);
+    }
+    if (index >= 2) pixels = player_sprite(index, 1, 0);
+    const auto palette = index != 0 ? character_colors(index, 1) : std::array<uint32_t, 4>{
+        0, cyc_render_color_value(0x16), cyc_render_color_value(0x36), cyc_render_color_value(0x0f)};
+    for (int i = 0; i < 32 * 32; ++i) result[i] = pixels[i] ? palette[pixels[i]] | 0xff000000 : 0;
+    return result;
+}
+
+// A co-op player who is away: a ghost the lead can touch, or a bubble floating back to the lead.
+void draw_away_partner(uint32_t *out, int width, int origin, int camera, const uint8_t *ram) {
+    const auto &coop = smb3::coop;
+    if (coop.ghost && coop.ghost < 90 && (coop.ghost & 4)) return; // Blinks before it floats away.
+    const auto picture = character_portrait(partner_who());
+    const int bob = static_cast<int>(std::lround(2 * std::sin(effect_tick * 0.1)));
+    const int center_x = origin + coop.away_x - camera;
+    const int center_y = coop.away_y - (ram[0x542] * 256 + ram[0x543]) + bob; // Level_VertScrollH, Level_VertScroll
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 32; ++x) {
+            const uint32_t pixel = picture[y * 32 + x];
+            const int px = center_x - 16 + x, py = center_y - 16 + y;
+            if (!pixel || px < 0 || px >= width || py < 0 || py >= PlayfieldHeight) continue;
+            uint32_t &target = out[py * width + px];
+            target = coop.ghost ? smb3::blend(target, (pixel & 0xffffff) | 0x90000000) : pixel;
+        }
+    if (!coop.bubble) return;
+    for (int dy = -17; dy <= 17; ++dy)
+        for (int dx = -17; dx <= 17; ++dx) {
+            const int distance = dx * dx + dy * dy, px = center_x + dx, py = center_y + dy;
+            if (distance > 17 * 17 || px < 0 || px >= width || py < 0 || py >= PlayfieldHeight) continue;
+            const bool shine = (dx + 8) * (dx + 8) + (dy + 8) * (dy + 8) <= 6;
+            uint32_t &target = out[py * width + px];
+            target = smb3::blend(target, shine ? 0xe0ffffffu : distance >= 15 * 15 ? 0xc8e8f8ffu : 0x3090d0ffu);
+        }
+}
+
+// The crown marks the player the camera follows, as in Super Mario Bros. Wonder.
+void draw_crown(uint32_t *out, int width, const PlayerBounds &lead) {
+    static constexpr const char *const crown[] = {"g..g..g", "gg.g.gg", "ggggggg", "grgbgrg", "ggggggg"};
+    const int left = (lead.left + lead.right + 1) / 2 - 3, top = lead.top - 8;
+    auto paint = [&](int x, int y, uint32_t color) {
+        if (x >= 0 && x < width && y >= 0 && y < PlayfieldHeight) out[y * width + x] = color;
     };
+    for (int y = -1; y <= 5; ++y)
+        for (int x = -1; x <= 7; ++x) {
+            auto at = [&](int cx, int cy) { return cx >= 0 && cx < 7 && cy >= 0 && cy < 5 && crown[cy][cx] != '.'; };
+            if (!at(x, y) && (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1)))
+                paint(left + x, top + y, 0xff2a1606);
+        }
+    for (int y = 0; y < 5; ++y)
+        for (int x = 0; x < 7; ++x)
+            if (crown[y][x] != '.')
+                paint(left + x, top + y, crown[y][x] == 'r' ? 0xffe8402c : crown[y][x] == 'b' ? 0xff4c8cf8 : 0xfff8c838);
+}
+
+void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
+                  const std::vector<uint8_t> &opaque) {
+    const int character = lead_character(); // The player in RAM, whose sprites are in OAM.
+    auto &sprites = sprite_layer;
+    sprites.assign(width * PlayfieldHeight, 0);
+    const uint8_t *sprites_oam = oam();
+    const int first = ram[0x58e] / 4; // Player_SprOff
+    const int camera = ram[0x3ef] ? 0 : camera_x(ram);
+    const int player_x = smb3::unwrap(sprites_oam[first * 4 + 3], ram[0x75] * 256 + ram[0x90] - camera);
+    std::array<int, 64> positions;
+    std::array<bool, 64> grouped{};
+    for (int slot = 0; slot < 64; ++slot) positions[slot] = sprites_oam[slot * 4 + 3];
+    for (int slot = first; slot < std::min(first + 6, 64); ++slot) {
+        positions[slot] = smb3::unwrap(positions[slot], player_x);
+        grouped[slot] = true;
+    }
+    for (int object = 0; object < 8; ++object) {
+        if (!ram[0x661 + object]) continue;
+        const int object_first = ram[0x58f + object] / 4;
+        int end = std::min(object_first + 8, 64);
+        if (first > object_first) end = std::min(end, first);
+        for (int other = 0; other < 8; ++other)
+            if (ram[0x661 + other] && ram[0x58f + other] / 4 > object_first)
+                end = std::min(end, ram[0x58f + other] / 4);
+        const int expected = ram[0x76 + object] * 256 + ram[0x91 + object] - camera;
+        const int anchor = smb3::unwrap(ram[0xac + object], expected);
+        for (int slot = object_first; slot < end; ++slot) {
+            if (grouped[slot] || std::abs(smb3::unwrap(positions[slot], ram[0xac + object]) - ram[0xac + object]) > 32) continue;
+            positions[slot] = smb3::unwrap(positions[slot], anchor);
+            grouped[slot] = true;
+        }
+    }
+    for (int slot = 0; slot < 64; ++slot) {
+        const auto &extra = smb3::displayed_extra_sprites[slot];
+        if (width > 256 && !(slot >= first && slot < first + 6) &&
+            extra.y == sprites_oam[slot * 4] && extra.x == sprites_oam[slot * 4 + 3]) {
+            positions[slot] = extra.world_x - camera;
+            grouped[slot] = true;
+        }
+    }
+    if (width > 256 && !ram[0x3ef])
+        place_screen_effects(positions, grouped);
+    PlayerTiles lead_tiles{sprites_oam + std::min(first, 58) * 4};
+    for (int slot = 0; slot < 6; ++slot) lead_tiles.left[slot] = origin + positions[std::min(first, 58) + slot];
+    const PlayerArt lead = first <= 58 ? player_art(ram, character, lead_tiles) : PlayerArt{};
+    const bool replacement = lead.visible();
+    const bool rainbow = rainbow_star && ram[0x553]; // Player_StarInv
+    const int rainbow_phase = static_cast<int>((cyc_cycle_count() / 29781) & 0xffffff) * 9;
     // The co-op partner, from the sprites its own Player_Update drew, behind everything else.
-    // Its palette follows its own suit, which can differ from the lead's in the PPU.
-    if (smb3::coop.enabled && smb3::coop.present && !smb3::coop.respawn) {
-        const auto &partner = smb3::coop;
-        const int who = partner.partner_is_p1 ? ::character : partner_character();
-        const int suit = partner.partner[smb3::Suit];
-        const uint8_t *colors = smb3::coop_palettes ?
-            smb3::coop_palettes + (suit < 2 || suit == 3 ? 0 : std::min(suit, 7)) * 4 : nullptr;
-        const int relative_x = smb3::coop_x(partner.partner.data()) - partner.scroll_x;
-        const int rise = partner.scroll_y - ram[0x543]; // Level_VertScroll then and now
-        for (int slot = 5; slot >= 0; --slot) {
-            const uint8_t *sprite = partner.sprites.data() + slot * 4;
-            if (sprite[0] >= 0xef) continue;
-            const int left = origin + partner.scroll_x + smb3::unwrap(sprite[3], relative_x) - camera;
-            const int top = sprite[0] + 1 + rise;
-            const int h = cyc_render_line_sprite16(std::clamp(top, 0, Height - 1)) ? 16 : 8;
-            for (int y = 0; y < h; ++y) {
-                const int py = top + y;
-                if (py < 0 || py >= PlayfieldHeight || !(cyc_render_line_mask(py) & 0x10)) continue;
-                const auto row = sprite_row(sprite, y, partner.banks.data());
-                for (int x = 0; x < 8; ++x) {
-                    const int px = left + x;
-                    const unsigned value = row.pixel(x), palette = sprite[2] & 3;
-                    if (!value || px < 0 || px >= width) continue;
-                    // Star power cycles the other palettes; the PPU holds those.
-                    const unsigned nes = !palette && colors ? colors[value] : sprite_palette(16 + palette * 4 + value);
-                    const int i = py * width + px;
-                    sprites[i] = smb3::sprite_priority(sprites[i], player_color(nes, suit, palette != 0, who),
-                                                       sprite[2] & 0x20, opaque[i]);
-                }
-            }
+    // Its RAM view and suit palette are its own; the PPU's palette 0 follows the lead's suit.
+    std::array<uint8_t, 2048> partner_ram;
+    if (smb3::coop.enabled && smb3::coop_partner_active()) {
+        const auto &coop = smb3::coop;
+        std::copy_n(ram, partner_ram.size(), partner_ram.begin());
+        for (size_t i = 0; i < smb3::CoopRamSize; ++i) partner_ram[smb3::CoopRam[i]] = coop.partner[i];
+        const int suit = coop.partner[smb3::Suit];
+        PlayerTiles tiles{coop.sprites.data(), coop.banks.data(), smb3::coop_palettes ?
+            smb3::coop_palettes + (suit < 2 || suit == 3 ? 0 : std::min(suit, 7)) * 4 : nullptr};
+        tiles.rise = coop.scroll_y - ram[0x543]; // Level_VertScroll then and now
+        const int relative_x = smb3::coop_x(coop.partner.data()) - coop.scroll_x;
+        for (int slot = 0; slot < 6; ++slot)
+            tiles.left[slot] = origin + coop.scroll_x + smb3::unwrap(coop.sprites[slot * 4 + 3], relative_x) - camera;
+        const int who = partner_who();
+        const PlayerArt art = player_art(partner_ram.data(), who, tiles);
+        if (!art.visible()) draw_player_tiles(tiles, partner_ram.data(), who, width, opaque);
+        else {
+            paint_player(art, tiles, partner_ram.data(), who, width, opaque);
+            if (art.shoe) draw_player_tiles(tiles, partner_ram.data(), who, width, opaque, 3);
         }
     }
     // The ROM still controls timing, visibility and priority for every character.
     for (int slot = 63; slot >= 0; --slot) {
         const uint8_t *sprite = sprites_oam + slot * 4;
         const int top = sprite[0] + 1, left = origin + positions[slot];
-        const bool is_player = !poof && slot >= player.first + (shoe ? 3 : 0) && slot < player.first + 6;
+        const bool is_player = !lead.poof && slot >= first + (lead.shoe ? 3 : 0) && slot < first + 6;
         if (is_player && replacement) {
-            if (slot == player.first + 5) paint_reference();
+            if (slot == first + 5) paint_player(lead, lead_tiles, ram, character, width, opaque);
             continue;
         }
         const int h = cyc_render_line_sprite16(std::min(top, Height - 1)) ? 16 : 8;
@@ -1070,6 +1194,10 @@ void draw_sprites(uint32_t *out, int width, int origin, const uint8_t *ram,
     if (shadows) smb3::shadow(out, width, PlayfieldHeight, sprites, 3, 4, opaque.data());
     for (size_t i = 0; i < sprites.size(); ++i)
         if (sprites[i]) out[i] = sprites[i];
+    if (smb3::coop.enabled && smb3::coop.present) {
+        if (!smb3::coop_partner_active()) draw_away_partner(out, width, origin, camera, ram);
+        if (lead.bounds.visible() && !ram[0xf1]) draw_crown(out, width, lead.bounds);
+    }
 }
 
 uint32_t recolor(uint32_t pixel, bool sprite = false) {
@@ -1776,7 +1904,7 @@ void power_on(void *) {
     nes_mod_set_function_hook_enabled("smb3.wide-player-boundary", 1);
     nes_mod_set_function_hook_enabled("smb3.wide-autoscroll", 1);
     for (const char *id : {"smb3.coop-player", "smb3.coop-player-done", "smb3.coop-scrolling", "smb3.coop-die",
-                           "smb3.coop-throw"})
+                           "smb3.coop-throw", "smb3.coop-special-done"})
         nes_mod_set_function_hook_enabled(id, 1);
     smb3::extra_sprites = {};
     smb3::displayed_extra_sprites = {};
@@ -1794,6 +1922,12 @@ void power_on(void *) {
     nes_mod_set_function_hook_enabled("smb3.practice-level", 1);
     practice_target = nullptr;
     practice_levels = smb3::practice_levels(rom);
+    for (const auto &levels : practice_levels)
+        for (const auto &level : levels)
+            if (requested_level == (level.number ? level.label(false) : std::to_string(level.world + 1) + "-" + level.label(false)))
+                practice_target = &level;
+    if (!requested_level.empty() && !practice_target)
+        std::fprintf(stderr, "SMB3 Remastered: no hay un nivel %s\n", requested_level.c_str());
     practice_campaign.data.reset();
     practice_boot.data.reset();
     practice_boot.capture();
@@ -1979,36 +2113,15 @@ int menu_action(void *, const RecompRuntimeUiItem *item) {
 const RecompRuntimeUiCallbacks MenuCallbacks = {nullptr, menu_get, menu_set, menu_action};
 
 void preview(int index, ImVec2 position, float scale, int opacity = 255, bool peace = false) {
-    const auto &poses = player_sheet(index, "Selector.png");
-    if (poses.width == 64 && poses.height == 32) {
-        auto *draw = ImGui::GetForegroundDrawList();
-        for (int y = 0; y < 32; ++y)
-            for (int x = 0; x < 32; ++x) {
-                const auto pixel = poses.at(x + (peace ? 32 : 0), y);
-                if (!(pixel >> 24)) continue;
-                draw->AddRectFilled(ImVec2(std::floor(position.x + x * scale), std::floor(position.y + y * scale)),
-                    ImVec2(std::floor(position.x + (x + 1) * scale), std::floor(position.y + (y + 1) * scale)),
-                    IM_COL32((pixel >> 16) & 255, (pixel >> 8) & 255, pixel & 255, opacity));
-            }
-        return;
-    }
-    smb3::Sprite pixels = original_player;
-    if (index == 1) {
-        pixels = smb3::campaign_sprite(player_sheet(index, "Campaign.png"), 1, 0x0e);
-        if (!smb3::sprite_visible(pixels)) pixels = smb3::luigi_silhouette(original_player);
-    }
-    if (index >= 2) pixels = player_sprite(index, 1, 0);
-    const auto palette = index != 0 ? character_colors(index, 1) : std::array<uint32_t, 4>{
-        0, cyc_render_color_value(0x16), cyc_render_color_value(0x36), cyc_render_color_value(0x0f)};
+    const auto pixels = character_portrait(index, peace);
     ImDrawList *draw = ImGui::GetForegroundDrawList();
     for (int y = 0; y < 32; ++y)
         for (int x = 0; x < 32; ++x) {
-            const unsigned role = pixels[y * 32 + x];
-            if (!role) continue;
-            const uint32_t pixel = palette[role];
-            const ImU32 color = IM_COL32((pixel >> 16) & 255, (pixel >> 8) & 255, pixel & 255, opacity);
+            const uint32_t pixel = pixels[y * 32 + x];
+            if (!pixel) continue;
             draw->AddRectFilled(ImVec2(std::floor(position.x + x * scale), std::floor(position.y + y * scale)),
-                                ImVec2(std::floor(position.x + (x + 1) * scale), std::floor(position.y + (y + 1) * scale)), color);
+                ImVec2(std::floor(position.x + (x + 1) * scale), std::floor(position.y + (y + 1) * scale)),
+                IM_COL32((pixel >> 16) & 255, (pixel >> 8) & 255, pixel & 255, opacity));
         }
 }
 
@@ -2122,6 +2235,7 @@ void frontend_input(void *, uint8_t buttons[2]) {
 }
 void frontend_frame_end(void *) {
     update_screen_effects();
+    smb3::coop_frame_end(cyc_cpu_ram());
 #ifdef CYC_WITH_RECOMP_UI
     // The wait can last longer than the ROM's eight-bit tick. Keep it negative until resume.
     if (paused_wait && cyc_cpu_ram()[VBlankTick] == 0x80) cyc_mod_poke(VBlankTick, 0xff);
@@ -2152,6 +2266,8 @@ const CycHostOption Options[] = {
     {"--aspect", true, "native | 16:9 | fit"},
     {"--skip-selection", false, "Omitir la pantalla de personajes (pruebas automatizadas)"},
     {"--coop", false, "Dos jugadores a la vez: el mando 2 controla al compañero"},
+    {"--partner", true, "mario | luigi | toad | toadette (jugador 2 en cooperativo)"},
+    {"--level", true, "Empezar en un nivel de práctica, p. ej. 1-4 o \"1-Airship\" (pruebas)"},
 };
 
 CycHostExtras make_extras() {

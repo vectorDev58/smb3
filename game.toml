@@ -124,3 +124,8 @@ bytes = "AD F4 04 09 01 8D F4 04"
 id = "smb3.coop-throw"
 addr = 0xA247
 bytes = "A5 ED C9 06 F0 04 C9 02"
+
+[[mod_function_hook]]
+id = "smb3.coop-special-done"
+addr = 0xAF20
+bytes = "CA 10 F8 60 BD C6 7F F0"

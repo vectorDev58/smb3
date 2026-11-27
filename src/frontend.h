@@ -27,6 +27,7 @@ struct CharacterChoice {
     smb3::Screen back = smb3::Screen::Main;
     bool start_campaign = false, new_game = false, load_save = false;
     int index = 0, players = 1;
+    bool partner_step = false; // Co-op: player 2 picks a character after player 1.
 } character_choice;
 
 void frontend_screen(smb3::Screen screen) {
@@ -708,13 +709,17 @@ void ui_characters(float scale) {
         ImGui::SetCursorScreenPos(point(x, y));
         return ImGui::InvisibleButton(id, ImVec2(width * scale, height * scale));
     };
-    auto turn = [&](int direction) {
-        character_choice.index = (character_choice.index + direction + character_count) % character_count;
+    auto neighbor = [&](int direction) { // Player 2 cannot take player 1's character.
+        int i = character_choice.index;
+        do i = (i + direction + character_count) % character_count;
+        while (character_choice.partner_step && i == character);
+        return i;
     };
+    auto turn = [&](int direction) { character_choice.index = neighbor(direction); };
     if (ui_pressed(ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft)) turn(-1);
     if (ui_pressed(ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight)) turn(1);
     const bool choose_players = character_choice.start_campaign && !character_choice.load_save &&
-        (character_choice.new_game || !frontend.started);
+        (character_choice.new_game || !frontend.started) && !character_choice.partner_step;
     // 1 player, 2 players taking turns, or 2 players at once (3).
     if (choose_players && ui_pressed(ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown))
         character_choice.players = character_choice.players % 3 + 1;
@@ -722,7 +727,8 @@ void ui_characters(float scale) {
         character_choice.players = (character_choice.players + 1) % 3 + 1;
 
     ui_frame(point(-376, 92), point(376, 612), scale);
-    ui_text(smb3_text("SELECT CHARACTER", "ELIGE PERSONAJE"), 30 * scale, point(0, 116).y, 0xffffff, true);
+    ui_text(character_choice.partner_step ? smb3_text("PLAYER 2", "JUGADOR 2") :
+            smb3_text("SELECT CHARACTER", "ELIGE PERSONAJE"), 30 * scale, point(0, 116).y, 0xffffff, true);
     rect(-341, 160, 682, 2, MenuTrim);
 
     bool hover_arrow[2]{};
@@ -732,7 +738,8 @@ void ui_characters(float scale) {
     }
     for (int i = 0; i < character_count; ++i) {
         ImGui::PushID(i);
-        if (hit("select character", i * 30 - character_count * 15 + 4, 468, 22, 32)) character_choice.index = i;
+        if (hit("select character", i * 30 - character_count * 15 + 4, 468, 22, 32) &&
+            !(character_choice.partner_step && i == character)) character_choice.index = i;
         ImGui::PopID();
     }
 
@@ -751,9 +758,9 @@ void ui_characters(float scale) {
     rect(-115, 393, 230, 3, MenuGold);
     for (int x = -327; x < 342; x += 20) rect(x, 400, 10, 3, 0x775437);
 
-    preview((index + character_count - 1) % character_count, point(-255 - 52, 393 - 104), 3.25f * scale, 125);
-    if (character_count > 2)
-        preview((index + 1) % character_count, point(255 - 52, 393 - 104), 3.25f * scale, 125);
+    const int previous = neighbor(-1), next = neighbor(1);
+    if (previous != index) preview(previous, point(-255 - 52, 393 - 104), 3.25f * scale, 125);
+    if (next != index && next != previous) preview(next, point(255 - 52, 393 - 104), 3.25f * scale, 125);
     preview(index, point(-80, 393 - 160), 5 * scale, 255, true);
     for (int side = 0; side < 2; ++side) {
         const unsigned color = hover_arrow[side] ? MenuWhite : MenuGold;
@@ -771,6 +778,10 @@ void ui_characters(float scale) {
     }
 
     if (*character_error) ui_text(character_error, 15 * scale, point(0, 520).y, 0xff9a8c);
+    else if (character_choice.partner_step) {
+        const std::string with = std::string(smb3_text("CO-OP WITH ", "COOPERATIVO CON ")) + Characters[character];
+        ui_text(with.c_str(), 20 * scale, point(0, 518).y, MenuGold);
+    }
     else if (character_choice.load_save) {
         const std::string world = std::string(smb3_text("WORLD ", "MUNDO ")) + std::to_string(campaign_save_world + 1);
         ui_text(world.c_str(), 20 * scale, point(0, 518).y, MenuGold);
@@ -803,9 +814,16 @@ void ui_characters(float scale) {
                                   confirm_hint, back_hint});
     else
         ui_hints(hints_y, scale, {character_hint, confirm_hint, back_hint});
-    if (back) close_character_choice();
-    else if (accept) {
-        character = index;
+    if (back && character_choice.partner_step) {
+        character_choice.partner_step = false;
+        character_choice.index = character;
+    } else if (back) close_character_choice();
+    else if (accept && choose_players && character_choice.players == 3) {
+        character = index; // Player 1 chose; now player 2 does.
+        character_choice.partner_step = true;
+        character_choice.index = player2_character();
+    } else if (accept) {
+        (character_choice.partner_step ? partner : character) = index;
         smb3_ui_save();
         if (!character_choice.start_campaign) close_character_choice();
         else if (character_choice.load_save) {
@@ -817,7 +835,7 @@ void ui_characters(float scale) {
         } else {
             // Co-op starts the ROM's one-player game; controller 2 joins in every level.
             smb3::coop = {};
-            smb3::coop.enabled = character_choice.players == 3;
+            smb3::coop.enabled = character_choice.partner_step;
             frontend.players = character_choice.players == 3 ? 1 : character_choice.players;
             frontend.play();
         }
